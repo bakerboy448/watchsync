@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM ghcr.io/linuxserver/baseimage-alpine-nginx:3.23
+FROM ghcr.io/linuxserver/baseimage-alpine-nginx:3.24
 ARG TARGETARCH
 ENV TARGETARCH=${TARGETARCH}
 
