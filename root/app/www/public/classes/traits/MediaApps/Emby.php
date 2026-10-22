@@ -438,7 +438,7 @@ trait Emby
         $itemPath = rawurlencode($remoteId);
 
         $itemCurl = curl(
-            sprintf(MediaAppEndpoints::ENDPOINT_EMBY_USER_ITEM, $url, $userPath, $itemPath) . '?enableImages=false',
+            sprintf(MediaAppEndpoints::ENDPOINT_EMBY_USER_ITEM, $url, $userPath, $itemPath) . '?enableUserData=true&enableImages=false',
             $headers,
             'GET',
         );
@@ -452,6 +452,7 @@ trait Emby
         }
 
         $item      = is_array($itemCurl['response'] ?? null) ? $itemCurl['response'] : [];
+        $userData  = is_array($item['UserData'] ?? null) ? $item['UserData'] : [];
         $itemId    = strval($item['Id'] ?? $remoteId);
         $itemPath  = rawurlencode($itemId);
         $playedUrl = sprintf(MediaAppEndpoints::ENDPOINT_EMBY_PLAYED_ITEM, $url, $userPath, $itemPath)
@@ -459,9 +460,14 @@ trait Emby
 
         if ($finished) {
             curl($playedUrl, $headers, 'POST');
+            $playCount = intval($userData['PlayCount'] ?? 0);
+            if ($playCount < 1) {
+                $playCount = 1;
+            }
             $payload = json_encode([
                 'Played'                => true,
-                'PlaybackPositionTicks' => '0',
+                'PlayCount'             => $playCount,
+                'PlaybackPositionTicks' => 0,
                 'LastPlayedDate'        => gmdate('c'),
             ]);
             curl(sprintf(MediaAppEndpoints::ENDPOINT_EMBY_USER_DATA, $url, $userPath, $itemPath), $headers, 'POST', $payload);
@@ -469,9 +475,8 @@ trait Emby
         }
 
         if ($started && $inprogress) {
-            $userData = is_array($item['UserData'] ?? null) ? $item['UserData'] : [];
-            $payload  = json_encode([
-                'PlaybackPositionTicks' => strval(intval($inprogress) * 10000000),
+            $payload = json_encode([
+                'PlaybackPositionTicks' => intval($inprogress) * 10000000,
                 'Played'                => !empty($userData['Played']),
                 'LastPlayedDate'        => gmdate('c'),
             ]);

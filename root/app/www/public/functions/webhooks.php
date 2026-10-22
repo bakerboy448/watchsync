@@ -676,6 +676,21 @@ function webhookFindUser($mediaApp, $userId, $username)
     return [];
 }
 
+function webhookPlaybackAction($action, $progress, $runtime)
+{
+    if ($action != 'stop') {
+        return $action;
+    }
+
+    $progress = intval($progress);
+    $runtime  = intval($runtime);
+    if ($runtime > 0 && $progress > 0 && $progress >= intval($runtime * 0.9)) {
+        return 'scrobble';
+    }
+
+    return $action;
+}
+
 function webhookWatchState($action, $progress, $runtime, $existing)
 {
     $finished   = 0;
@@ -808,6 +823,7 @@ function webhookApply($slug, $parsed)
         return 'Unmatched user.';
     }
 
+    $action   = webhookPlaybackAction($action, $parsed['progress'] ?? 0, $parsed['runtime'] ?? 0);
     $remoteId = trim(strval($parsed['itemId'] ?? ''));
     $platform = intval($app['platform']);
     if ($type == 'movie') {
@@ -867,6 +883,9 @@ function webhookPushWatch($sourceApp, $sourceUser, $item, $type, $state)
         $platform = intval($linkedApp['platform']);
         $field    = $database->mediaLibraryRemoteField($platform);
         $remoteId = trim(strval($item[$field] ?? ''));
+        if ($remoteId == '' && $type == 'episode') {
+            $remoteId = trim(strval($database->findEpisodeRemoteByCode(intval($item['id'] ?? 0), $platform)));
+        }
         if (!is_array($webhookResponses)) {
             $webhookResponses = [];
         }

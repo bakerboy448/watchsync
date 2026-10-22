@@ -258,14 +258,7 @@ trait MediaAppUser
             }
 
             $found = [];
-            foreach (array_merge([$username], $user['match_names'] ?? []) as $name) {
-                $name = strtolower(trim(strval($name)));
-                if ($name != '' && !empty($existingByName[$name])) {
-                    $found = $existingByName[$name];
-                    break;
-                }
-            }
-            if (!$found && !empty($existingByRemote[$remoteId])) {
+            if (!empty($existingByRemote[$remoteId])) {
                 $found = $existingByRemote[$remoteId];
             }
             if (!$found) {
@@ -274,6 +267,16 @@ trait MediaAppUser
                     if ($matchId != '' && !empty($existingByRemote[$matchId])) {
                         $found = $existingByRemote[$matchId];
                         break;
+                    }
+                }
+            }
+            if (!$found) {
+                $name = strtolower($username);
+                if ($name != '' && !empty($existingByName[$name])) {
+                    $candidate = $existingByName[$name];
+                    $candidateRemote = trim(strval($candidate['remote_id'] ?? ''));
+                    if ($candidateRemote == '' || $candidateRemote == $remoteId) {
+                        $found = $candidate;
                     }
                 }
             }

@@ -688,6 +688,16 @@ trait History
                         $remote                         = trim(strval($item['remote'][$platform] ?? ''));
                     }
                 }
+                if (($remote == '' || empty($item['flag'][$platform])) && $type == 'episode') {
+                    $remote = trim(strval($this->database->findEpisodeRemoteByCode(intval($item['id']), $platform)));
+                    if ($remote != '') {
+                        $item['flag'][$platform]            = 1;
+                        $item['remote'][$platform]          = $remote;
+                        $incoming[$incomingKey]['item']     = $item;
+                        logger($this->logfile, 'episode code remote ' . strval($item['label'] ?? '') . ' ' . $this->database->mediaLibraryFlag($platform) . '=' . $remote);
+                        loggerFlush($this->logfile);
+                    }
+                }
                 if ($remote == '' || empty($item['flag'][$platform])) {
                     if (!watchStateSatisfies($gathered ?? [], $merged)) {
                         $counts[$countKey]['skipped']++;
@@ -704,15 +714,6 @@ trait History
                             ];
                         }
                     }
-                    continue;
-                }
-
-                if (
-                    intval($app['role'] ?? 0) == MediaAppRoles::MASTER
-                    && empty($member['watch_error'])
-                    && $gathered == null
-                    && !array_key_exists(strval($remote), $member['watch_remote'][$type] ?? [])
-                ) {
                     continue;
                 }
 
@@ -838,7 +839,6 @@ trait History
                 continue;
             }
 
-            $sourceKey  = intval($app['id']) . ':' . $userId;
             $remoteMaps = $member['watch_remote'] ?? ['movie' => [], 'episode' => []];
             $clearedN   = 0;
             $cascadeN   = 0;
@@ -854,10 +854,7 @@ trait History
                     }
 
                     $incomingKey = $type . ':' . $itemId;
-                    if (!empty($incoming[$incomingKey]['sources'][$sourceKey])) {
-                        continue;
-                    }
-                    if (!$isMaster && !empty($incoming[$incomingKey]['sources'])) {
+                    if (!empty($incoming[$incomingKey]['sources'])) {
                         continue;
                     }
 

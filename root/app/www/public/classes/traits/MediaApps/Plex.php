@@ -344,7 +344,7 @@ trait Plex
     public function plexUserMatchNames($user)
     {
         $names = [];
-        foreach (['friendlyName', 'username', 'title', 'name', 'email'] as $key) {
+        foreach (['username', 'title', 'name', 'friendlyName', 'email'] as $key) {
             $name = trim(strval($user[$key] ?? ''));
             if ($name != '' && $name != '0' && !in_array($name, $names, true)) {
                 $names[] = $name;

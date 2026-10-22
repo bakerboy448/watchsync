@@ -153,4 +153,67 @@ trait Episode
     {
         return $this->setMediaLibraryPlatform(EPISODE_TABLE, $platform, $remoteId, $path);
     }
+
+    public function findEpisodeRemoteByCode($episodeId, $platform)
+    {
+        $field = $this->mediaLibraryRemoteField($platform);
+        $flag  = $this->mediaLibraryFlag($platform);
+        if ($field == '' || $flag == '') {
+            return '';
+        }
+
+        $episode = $this->getEpisode($episodeId);
+        if (!$episode) {
+            return '';
+        }
+
+        $own = trim(strval($episode[$field] ?? ''));
+        if ($own != '' && intval($episode[$flag] ?? 0)) {
+            return $own;
+        }
+
+        $seriesId = intval($episode['series_id'] ?? 0);
+        $season   = intval($episode['season'] ?? 0);
+        $number   = intval($episode['episode'] ?? 0);
+        if (!$seriesId) {
+            return '';
+        }
+
+        $remote = $this->episodeRemoteByCode($field, $flag, $season, $number, 'series_id = ' . $seriesId);
+        if ($remote != '') {
+            return $remote;
+        }
+
+        $series = $this->getSeries($seriesId);
+        $title  = trim(strval($series['title'] ?? ''));
+        $year   = intval($series['year'] ?? 0);
+        if ($title == '' || !$year) {
+            return '';
+        }
+
+        return $this->episodeRemoteByCode(
+            $field,
+            $flag,
+            $season,
+            $number,
+            "series_id IN (SELECT id FROM " . SERIES_TABLE . " WHERE title = '" . $this->prepare($title) . "' AND year = " . $year . ")"
+        );
+    }
+
+    public function episodeRemoteByCode($field, $flag, $season, $number, $seriesWhere)
+    {
+        $sql = "SELECT " . $field . " AS remote_id
+                FROM " . EPISODE_TABLE . "
+                WHERE " . $seriesWhere . "
+                AND season = " . intval($season) . "
+                AND episode = " . intval($number) . "
+                AND " . $flag . " = 1
+                AND " . $field . " IS NOT NULL
+                AND " . $field . " != ''
+                LIMIT 1";
+        $res = $this->query($sql);
+        $row = $this->fetchAssoc($res);
+
+        return trim(strval($row['remote_id'] ?? ''));
+    }
 }
