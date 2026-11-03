@@ -269,4 +269,89 @@ trait Silo
 
         return $status;
     }
+
+    public function siloGetItems($url, $apikey, $libraryKeys = [])
+    {
+        $url   = rtrim(trim($url), '/');
+        $items = ['movies' => [], 'series' => [], 'episodes' => []];
+        foreach ($libraryKeys ?: [''] as $libraryKey) {
+            $query = $libraryKey !== '' ? ['library_id' => $libraryKey] : [];
+            $rows  = $this->siloGetAll($url, MediaAppEndpoints::ENDPOINT_SILO_CATALOG_ITEMS, $apikey, '', $query);
+            if ($rows['error']) {
+                $items['error'] = true;
+                return $items;
+            }
+            foreach ($rows['items'] as $row) {
+                $added = strtotime(strval($row['added_at'] ?? ''));
+                $item  = [
+                    'remote_id'        => strval($row['content_id'] ?? ''),
+                    'title'            => strval($row['title'] ?? ''),
+                    'year'             => intval($row['year'] ?? 0),
+                    'path'             => '',
+                    'series_remote_id' => strval($row['series_id'] ?? ''),
+                    'series'           => strval($row['series_title'] ?? ''),
+                    'season'           => intval($row['season_number'] ?? 0),
+                    'episode'          => intval($row['episode_number'] ?? 0),
+                    'library'          => strval($libraryKey),
+                    'updated_at'       => $added ?: 0,
+                    'duration'         => 0,
+                    'provider_ids'     => $this->normalizeProviderIds([
+                        'imdb' => $row['imdb_id'] ?? '',
+                        'tmdb' => $row['tmdb_id'] ?? '',
+                        'tvdb' => $row['tvdb_id'] ?? '',
+                    ]),
+                ];
+                $type = strval($row['type'] ?? '');
+                if ($type == 'movie') {
+                    $items['movies'][] = $item;
+                } else if ($type == 'series') {
+                    $items['series'][] = $item;
+                } else if ($type == 'episode') {
+                    $items['episodes'][] = $item;
+                }
+            }
+        }
+
+        return $items;
+    }
+
+    /*
+     * Uses only the key stored on the user, never the media app key, so a write
+     * cannot land on the media app key's account by fallback.
+     */
+    public function siloSetWatchStatus($url, $user, $remoteId, $started, $inprogress, $finished)
+    {
+        $url = rtrim(trim($url), '/');
+        $key = trim(strval($user['token'] ?? ''));
+        if ($key == '') {
+            return ['error' => true, 'code' => 0];
+        }
+
+        $profileId = $this->siloPrimaryProfileId($url, $key);
+        if ($profileId == '') {
+            return ['error' => true, 'code' => 0];
+        }
+
+        $headers = $this->siloHeaders($key, $profileId);
+        $watched = sprintf(MediaAppEndpoints::ENDPOINT_SILO_WATCHED, $url, rawurlencode($remoteId));
+        if ($finished) {
+            $curl = curl($watched, $headers, 'POST');
+        } else if ($started && $inprogress) {
+            $curl = curl(sprintf(MediaAppEndpoints::ENDPOINT_SILO_SYNC_PROGRESS, $url), $headers, 'POST', json_encode([
+                'items' => [[
+                    'media_item_id'   => strval($remoteId),
+                    'position_ms'     => intval($inprogress) * 1000,
+                    'duration_ms'     => 0,
+                    'updated_at'      => gmdate('Y-m-d\TH:i:s\Z'),
+                    'force_overwrite' => true,
+                ]],
+            ]));
+        } else {
+            $curl = curl($watched, $headers, 'DELETE');
+        }
+
+        $code = intval($curl['code'] ?? 0);
+
+        return ['error' => $code < 200 || $code > 299, 'code' => $code];
+    }
 }

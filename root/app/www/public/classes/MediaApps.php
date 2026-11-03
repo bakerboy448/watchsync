@@ -15,6 +15,7 @@ class MediaApps
     use Emby;
     use Jellyfin;
     use Silo;
+    use ProviderIds;
     use Parity;
 
     protected $database;
@@ -1002,6 +1003,9 @@ class MediaApps
                 return;
             case MediaPlatforms::JELLYFIN:
                 $this->jellyfinSetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $user['remote_id'], $remoteId, $started, $inprogress, $finished);
+                return;
+            case MediaPlatforms::SILO:
+                $this->siloSetWatchStatus($mediaApp['url'], $user, $remoteId, $started, $inprogress, $finished);
                 return;
         }
     }
