@@ -40,11 +40,11 @@ trait Silo
         $items  = [];
         $cursor = '';
         do {
-            $params = $query + ['limit' => 200];
+            $params = $query;
             if ($cursor != '') {
                 $params['cursor'] = $cursor;
             }
-            $curl     = curl(sprintf($path, $url) . '?' . http_build_query($params), $this->siloHeaders($apikey, $profileId), 'GET');
+            $curl     = curl(sprintf($path, $url) . ($params ? '?' . http_build_query($params) : ''), $this->siloHeaders($apikey, $profileId), 'GET');
             $code     = intval($curl['code'] ?? 0);
             $response = is_array($curl['response'] ?? null) ? $curl['response'] : [];
             if ($code < 200 || $code > 299 || !is_array($response['items'] ?? null)) {
@@ -96,7 +96,7 @@ trait Silo
     public function siloGetUsers($url, $apikey)
     {
         $url  = rtrim(trim($url), '/');
-        $rows = $this->siloGetAll($url, MediaAppEndpoints::ENDPOINT_SILO_USERS, $apikey);
+        $rows = $this->siloGetAll($url, MediaAppEndpoints::ENDPOINT_SILO_USERS, $apikey, '', ['limit' => 200]);
         if (in_array($rows['code'], [401, 403])) {
             return ['error' => true, 'message' => translate('mediaAppInvalidToken')];
         }
@@ -235,7 +235,7 @@ trait Silo
             return $status;
         }
 
-        $rows = $this->siloGetAll($url, MediaAppEndpoints::ENDPOINT_SILO_PROGRESS, $key, $profileId);
+        $rows = $this->siloGetAll($url, MediaAppEndpoints::ENDPOINT_SILO_PROGRESS, $key, $profileId, ['limit' => 200]);
         if ($rows['error']) {
             $status['error'] = true;
             return $status;
@@ -275,7 +275,7 @@ trait Silo
         $url   = rtrim(trim($url), '/');
         $items = ['movies' => [], 'series' => [], 'episodes' => []];
         foreach ($libraryKeys ?: [''] as $libraryKey) {
-            $query = $libraryKey !== '' ? ['library_id' => $libraryKey] : [];
+            $query = ['limit' => 200] + ($libraryKey !== '' ? ['library_id' => $libraryKey] : []);
             $rows  = $this->siloGetAll($url, MediaAppEndpoints::ENDPOINT_SILO_CATALOG_ITEMS, $apikey, '', $query);
             if ($rows['error']) {
                 $items['error'] = true;
