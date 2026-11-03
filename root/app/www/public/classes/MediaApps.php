@@ -14,6 +14,7 @@ class MediaApps
     use Plex;
     use Emby;
     use Jellyfin;
+    use Silo;
     use Parity;
 
     protected $database;
@@ -192,6 +193,8 @@ class MediaApps
                 return translate('emby');
             case MediaPlatforms::JELLYFIN:
                 return translate('jellyfin');
+            case MediaPlatforms::SILO:
+                return translate('silo');
             default:
                 return '';
         }
@@ -337,6 +340,9 @@ class MediaApps
             case MediaPlatforms::JELLYFIN:
                 $online = $this->jellyfinIsOnline($url);
                 break;
+            case MediaPlatforms::SILO:
+                $online = $this->siloIsOnline($url);
+                break;
             default:
                 $online = false;
                 break;
@@ -379,6 +385,8 @@ class MediaApps
                 return $this->embyTestConnection($url, $apikey);
             case MediaPlatforms::JELLYFIN:
                 return $this->jellyfinTestConnection($url, $apikey);
+            case MediaPlatforms::SILO:
+                return $this->siloTestConnection($url, $apikey);
             default:
                 return ['error' => true, 'message' => translate('missingRequiredField', [translate('platform')])];
         }
@@ -794,6 +802,8 @@ class MediaApps
                 return $this->embyGetLibraries($mediaApp['url'], $mediaApp['apikey'], $full);
             case MediaPlatforms::JELLYFIN:
                 return $this->jellyfinGetLibraries($mediaApp['url'], $mediaApp['apikey'], $full);
+            case MediaPlatforms::SILO:
+                return $this->siloGetLibraries($mediaApp['url'], $mediaApp['apikey']);
             default:
                 return [];
         }
@@ -970,6 +980,8 @@ class MediaApps
                 return $this->embyGetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $remoteId);
             case MediaPlatforms::JELLYFIN:
                 return $this->jellyfinGetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $remoteId);
+            case MediaPlatforms::SILO:
+                return $this->siloGetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $remoteId, $userId, $user);
             default:
                 return ['movies' => [], 'episodes' => [], 'error' => true];
         }
@@ -1151,6 +1163,8 @@ class MediaApps
                 return $this->embyGetUserLibraryKeys($mediaApp['url'], $mediaApp['apikey'], $user);
             case MediaPlatforms::JELLYFIN:
                 return $this->jellyfinGetUserLibraryKeys($mediaApp['url'], $mediaApp['apikey'], $user);
+            case MediaPlatforms::SILO:
+                return $this->siloGetUserLibraryKeys($mediaApp['url'], $mediaApp['apikey'], $user);
             default:
                 return ['all' => false, 'keys' => []];
         }
@@ -1453,6 +1467,9 @@ class MediaApps
                 break;
             case MediaPlatforms::JELLYFIN:
                 $result = $this->jellyfinGetUsers($url, $mediaApp['apikey']);
+                break;
+            case MediaPlatforms::SILO:
+                $result = $this->siloGetUsers($url, $mediaApp['apikey']);
                 break;
             default:
                 $result = ['error' => true, 'message' => translate('mediaAppNotFound')];

@@ -278,6 +278,7 @@
     "plex": "Plex",
     "emby": "Emby",
     "jellyfin": "Jellyfin",
+    "silo": "Silo",
     "edit": "Edit",
     "addMediaApp": "Add media app",
     "addAnotherMediaApp": "Add another Plex, Emby, or Jellyfin server.",

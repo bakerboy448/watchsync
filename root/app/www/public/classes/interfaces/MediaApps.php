@@ -12,6 +12,7 @@ interface MediaPlatforms
     public const PLEX     = 1;
     public const EMBY     = 2;
     public const JELLYFIN = 3;
+    public const SILO     = 4;
 }
 
 interface MediaAppRoles
@@ -108,6 +109,15 @@ interface MediaAppEndpoints
     public const ENDPOINT_EMBY_USER_PASSWORD          = '%s/Users/%s/Password';
     public const ENDPOINT_EMBY_USER_POLICY            = '%s/Users/%s/Policy';
     public const ENDPOINT_EMBY_AUTH                   = '%s/Users/AuthenticateByName';
+
+    public const ENDPOINT_SILO_ONLINE        = '%s/api/v2/system/info';
+    public const ENDPOINT_SILO_IDENTITY      = '%s/api/v2/system/identity';
+    public const ENDPOINT_SILO_USERS         = '%s/api/v2/admin/users';
+    public const ENDPOINT_SILO_LIBRARIES     = '%s/api/v2/libraries';
+    public const ENDPOINT_SILO_ME            = '%s/api/v2/account/me';
+    public const ENDPOINT_SILO_PROFILES      = '%s/api/v2/profiles';
+    public const ENDPOINT_SILO_PROGRESS      = '%s/api/v2/progress';
+    public const ENDPOINT_SILO_CATALOG_ITEMS = '%s/api/v2/admin/catalog/items';
 
     public const ENDPOINT_JELLYFIN_ONLINE            = '%s/System/Info/Public';
     public const ENDPOINT_JELLYFIN_INFO              = '%s/System/Info';

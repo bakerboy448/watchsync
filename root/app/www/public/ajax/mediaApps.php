@@ -54,6 +54,7 @@ switch ($_POST['event'] ?? '') {
                     <option value="<?= MediaPlatforms::PLEX ?>" <?= intval($platform) == MediaPlatforms::PLEX ? ' selected' : '' ?>><?= htmlEscape(translate('plex')) ?></option>
                     <option value="<?= MediaPlatforms::EMBY ?>" <?= intval($platform) == MediaPlatforms::EMBY ? ' selected' : '' ?>><?= htmlEscape(translate('emby')) ?></option>
                     <option value="<?= MediaPlatforms::JELLYFIN ?>" <?= intval($platform) == MediaPlatforms::JELLYFIN ? ' selected' : '' ?>><?= htmlEscape(translate('jellyfin')) ?></option>
+                    <option value="<?= MediaPlatforms::SILO ?>" <?= intval($platform) == MediaPlatforms::SILO ? ' selected' : '' ?>><?= htmlEscape(translate('silo')) ?></option>
                 </select>
             </div>
             <div class="mb-3">
