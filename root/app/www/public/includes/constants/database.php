@@ -27,6 +27,7 @@ define('MEDIA_APP_LIBRARY_TABLE', 'media_app_library');
 define('MOVIE_TABLE', 'movie');
 define('SERIES_TABLE', 'series');
 define('EPISODE_TABLE', 'episode');
+define('PROVIDER_ID_TABLE', 'provider_id');
 define('USER_MOVIE_LINK_TABLE', 'user_movie_link');
 define('USER_EPISODE_LINK_TABLE', 'user_episode_link');
 define('SYNC_HISTORY_TABLE', 'sync_history');

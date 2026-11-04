@@ -14,6 +14,23 @@
  */
 trait Silo
 {
+    /*
+     * Silo answers 429 under bulk paging. The curl helper does not return the
+     * Retry-After header, so the wait grows by two seconds per attempt.
+     */
+    public function siloCurl($url, $headers = [], $method = 'GET', $payload = '', $userPass = [], $timeout = 60)
+    {
+        for ($attempt = 1; $attempt <= 8; $attempt++) {
+            $curl = curl($url, $headers, $method, $payload, $userPass, $timeout);
+            if (intval($curl['code'] ?? 0) != 429) {
+                break;
+            }
+            sleep($attempt * 2);
+        }
+
+        return $curl;
+    }
+
     public function siloHeaders($apikey, $profileId = '')
     {
         $headers = [
@@ -30,7 +47,7 @@ trait Silo
     public function siloIsOnline($url)
     {
         $url  = rtrim(trim($url), '/');
-        $curl = curl(sprintf(MediaAppEndpoints::ENDPOINT_SILO_ONLINE, $url), ['Accept: application/json'], 'GET', '', [], 3);
+        $curl = $this->siloCurl(sprintf(MediaAppEndpoints::ENDPOINT_SILO_ONLINE, $url), ['Accept: application/json'], 'GET', '', [], 3);
 
         return $curl['code'] >= 200 && $curl['code'] <= 299;
     }
@@ -44,7 +61,7 @@ trait Silo
             if ($cursor != '') {
                 $params['cursor'] = $cursor;
             }
-            $curl     = curl(sprintf($path, $url) . ($params ? '?' . http_build_query($params) : ''), $this->siloHeaders($apikey, $profileId), 'GET');
+            $curl     = $this->siloCurl(sprintf($path, $url) . ($params ? '?' . http_build_query($params) : ''), $this->siloHeaders($apikey, $profileId), 'GET');
             $code     = intval($curl['code'] ?? 0);
             $response = is_array($curl['response'] ?? null) ? $curl['response'] : [];
             if ($code < 200 || $code > 299 || !is_array($response['items'] ?? null)) {
@@ -69,7 +86,7 @@ trait Silo
             return ['error' => true, 'message' => translate('missingConnectionFields')];
         }
 
-        $curl     = curl(sprintf(MediaAppEndpoints::ENDPOINT_SILO_IDENTITY, $url), ['Accept: application/json'], 'GET');
+        $curl     = $this->siloCurl(sprintf(MediaAppEndpoints::ENDPOINT_SILO_IDENTITY, $url), ['Accept: application/json'], 'GET');
         $response = is_array($curl['response'] ?? null) ? $curl['response'] : [];
         $serverId = strval($response['server_id'] ?? '');
         if ($curl['code'] == 404) {
@@ -179,15 +196,38 @@ trait Silo
             return $token;
         }
 
-        $curl = curl(sprintf(MediaAppEndpoints::ENDPOINT_SILO_ME, $url), $this->siloHeaders($apikey), 'GET');
+        $curl = $this->siloCurl(sprintf(MediaAppEndpoints::ENDPOINT_SILO_ME, $url), $this->siloHeaders($apikey), 'GET');
         $me   = is_array($curl['response'] ?? null) ? $curl['response'] : [];
 
         return strval($me['id'] ?? '') === strval($user['remote_id'] ?? '') ? $apikey : '';
     }
 
+    /*
+     * A user key is valid when it authenticates as the Silo account that this
+     * user row was imported from.
+     */
+    public function validateSiloUserToken($user, $mediaApp, $token)
+    {
+        $token = trim(strval($token ?? ''));
+        if ($token == '') {
+            return ['error' => true, 'message' => translate('tokenRequired')];
+        }
+
+        $url  = rtrim(trim($mediaApp['url']), '/');
+        $curl = $this->siloCurl(sprintf(MediaAppEndpoints::ENDPOINT_SILO_ME, $url), $this->siloHeaders($token), 'GET');
+        $me   = is_array($curl['response'] ?? null) ? $curl['response'] : [];
+        $ok   = intval($curl['code'] ?? 0) == 200 && strval($me['id'] ?? '') !== '' && strval($me['id']) === strval($user['remote_id'] ?? '');
+
+        return [
+            'error'     => !$ok,
+            'message'   => translate($ok ? 'tokenValid' : 'tokenInvalid'),
+            'icon_html' => mediaAppUserTokenIconFromRow($user),
+        ];
+    }
+
     public function siloPrimaryProfileId($url, $key)
     {
-        $curl     = curl(sprintf(MediaAppEndpoints::ENDPOINT_SILO_PROFILES, $url), $this->siloHeaders($key), 'GET');
+        $curl     = $this->siloCurl(sprintf(MediaAppEndpoints::ENDPOINT_SILO_PROFILES, $url), $this->siloHeaders($key), 'GET');
         $response = is_array($curl['response'] ?? null) ? $curl['response'] : [];
         foreach ($response['items'] ?? [] as $profile) {
             if (!empty($profile['is_primary'])) {
@@ -203,7 +243,7 @@ trait Silo
         $types = [];
         foreach (array_chunk(array_values(array_unique($ids)), 200) as $chunk) {
             $query = implode('&', array_map(fn($id) => 'content_ids=' . rawurlencode($id), $chunk));
-            $curl  = curl(sprintf(MediaAppEndpoints::ENDPOINT_SILO_CATALOG_ITEMS, $url) . '?limit=200&' . $query, $this->siloHeaders($apikey), 'GET');
+            $curl  = $this->siloCurl(sprintf(MediaAppEndpoints::ENDPOINT_SILO_CATALOG_ITEMS, $url) . '?limit=200&' . $query, $this->siloHeaders($apikey), 'GET');
             if (intval($curl['code'] ?? 0) < 200 || intval($curl['code'] ?? 0) > 299) {
                 return false;
             }
@@ -335,9 +375,9 @@ trait Silo
         $headers = $this->siloHeaders($key, $profileId);
         $watched = sprintf(MediaAppEndpoints::ENDPOINT_SILO_WATCHED, $url, rawurlencode($remoteId));
         if ($finished) {
-            $curl = curl($watched, $headers, 'POST');
+            $curl = $this->siloCurl($watched, $headers, 'POST');
         } else if ($started && $inprogress) {
-            $curl = curl(sprintf(MediaAppEndpoints::ENDPOINT_SILO_SYNC_PROGRESS, $url), $headers, 'POST', json_encode([
+            $curl = $this->siloCurl(sprintf(MediaAppEndpoints::ENDPOINT_SILO_SYNC_PROGRESS, $url), $headers, 'POST', json_encode([
                 'items' => [[
                     'media_item_id'   => strval($remoteId),
                     'position_ms'     => intval($inprogress) * 1000,
@@ -347,7 +387,7 @@ trait Silo
                 ]],
             ]));
         } else {
-            $curl = curl($watched, $headers, 'DELETE');
+            $curl = $this->siloCurl($watched, $headers, 'DELETE');
         }
 
         $code = intval($curl['code'] ?? 0);

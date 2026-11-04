@@ -15,9 +15,11 @@ trait Library
             'plex'               => 0,
             'emby'               => 0,
             'jellyfin'           => 0,
+            'silo'               => 0,
             'plex_remote_id'     => '',
             'emby_remote_id'     => '',
             'jellyfin_remote_id' => '',
+            'silo_remote_id'     => '',
         ];
 
         switch (intval($platform)) {
@@ -28,6 +30,10 @@ trait Library
             case MediaPlatforms::JELLYFIN:
                 $flags['jellyfin']           = 1;
                 $flags['jellyfin_remote_id'] = $remoteId;
+                break;
+            case MediaPlatforms::SILO:
+                $flags['silo']           = 1;
+                $flags['silo_remote_id'] = $remoteId;
                 break;
             default:
                 $flags['plex']           = 1;
@@ -265,6 +271,17 @@ trait Library
                     }
                 }
                 $addedBefore = $added['movies'] + $added['series'] + $added['episodes'];
+                if (intval($mediaApp['platform']) == MediaPlatforms::SILO) {
+                    $siloStats = [];
+                    $this->importSiloItems($mediaApp, $items, $siloStats);
+                    logger($this->logfile, $label . ' silo match ' . json_encode($siloStats));
+                    foreach ($siloStats as $bucket => $counts) {
+                        $added[$bucket]     += 0;
+                        $updated[$bucket]   += $counts['updated'];
+                        $unchanged[$bucket] += $counts['unchanged'];
+                    }
+                    continue;
+                }
                 $this->importLibraryItems($mediaApp, $platformName, [
                     'movies'   => $items['movies'] ?? [],
                     'series'   => $items['series'] ?? [],
@@ -278,7 +295,7 @@ trait Library
                 }
             }
 
-            if (!$since && $seenIds && $this->scannedAllAppLibraries($mediaApp, $libraries)) {
+            if (!$since && $seenIds && intval($mediaApp['platform']) != MediaPlatforms::SILO && $this->scannedAllAppLibraries($mediaApp, $libraries)) {
                 $cleared = $this->database->clearUnseenMediaLibraryRemotes($mediaApp['platform'], array_keys($seenIds));
                 if ($cleared) {
                     logger($this->logfile, 'media library ' . $mediaApp['name'] . ' cleared stale remote ids ' . $cleared);
@@ -493,6 +510,9 @@ trait Library
                     $this->database->setLastError('');
                     $action  = $this->upsertLibraryItem($mediaApp, SERIES_TABLE, 'series', $item, $added, $updated, $unchanged);
                     $success = $action != '';
+                    if ($success) {
+                        $this->recordImportedProviderIds($mediaApp, SERIES_TABLE, $item);
+                    }
                     if (!$success) {
                         $error = $this->database->getLastError() ?: 'series upsert failed';
                     }
@@ -519,6 +539,9 @@ trait Library
                     $this->database->setLastError('');
                     $action  = $this->upsertLibraryItem($mediaApp, MOVIE_TABLE, 'movie', $item, $added, $updated, $unchanged);
                     $success = $action != '';
+                    if ($success) {
+                        $this->recordImportedProviderIds($mediaApp, MOVIE_TABLE, $item);
+                    }
                     if (!$success) {
                         $error = $this->database->getLastError() ?: 'movie upsert failed';
                     }
@@ -697,7 +720,7 @@ trait Library
             $row = $this->database->getEpisodeByRemoteId($mediaApp['platform'], $item['remote_id']);
         }
         if (!$row) {
-            $sql = "SELECT id, series_id, season, episode, title, path, plex, emby, jellyfin, plex_remote_id, emby_remote_id, jellyfin_remote_id, poster
+            $sql = "SELECT id, series_id, season, episode, title, path, plex, emby, jellyfin, silo, plex_remote_id, emby_remote_id, jellyfin_remote_id, silo_remote_id, poster
                     FROM " . EPISODE_TABLE . "
                     WHERE `path` = '" . $this->database->prepare($episodePath) . "'
                     LIMIT 1";
@@ -1049,7 +1072,7 @@ trait Library
                 $row = $this->database->getEpisodeByRemoteId($platform, $remoteId);
             }
             if (!$row && $path != '') {
-                $sql = "SELECT id, series_id, season, episode, title, path, plex, emby, jellyfin, plex_remote_id, emby_remote_id, jellyfin_remote_id, poster
+                $sql = "SELECT id, series_id, season, episode, title, path, plex, emby, jellyfin, silo, plex_remote_id, emby_remote_id, jellyfin_remote_id, silo_remote_id, poster
                         FROM " . EPISODE_TABLE . "
                         WHERE `path` = '" . $this->database->prepare($path) . "'
                         LIMIT 1";

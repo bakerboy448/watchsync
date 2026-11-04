@@ -963,6 +963,8 @@ class MediaApps
                 return $this->embyGetItems($mediaApp['url'], $mediaApp['apikey'], $libraryKeys, $seriesRemoteId, $seriesTitle, $since);
             case MediaPlatforms::JELLYFIN:
                 return $this->jellyfinGetItems($mediaApp['url'], $mediaApp['apikey'], $libraryKeys, $seriesRemoteId, $seriesTitle, $since);
+            case MediaPlatforms::SILO:
+                return $this->siloGetItems($mediaApp['url'], $mediaApp['apikey'], array_map(fn($library) => strval(is_array($library) ? ($library['key'] ?? '') : $library), $libraryKeys));
             default:
                 return ['movies' => [], 'series' => [], 'episodes' => []];
         }

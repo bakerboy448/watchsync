@@ -18,6 +18,8 @@ trait MediaLibrary
                 return 'jellyfin';
             case MediaPlatforms::PLEX:
                 return 'plex';
+            case MediaPlatforms::SILO:
+                return 'silo';
             default:
                 return '';
         }
@@ -36,10 +38,10 @@ trait MediaLibrary
     public function mediaLibrarySelectColumns($table)
     {
         if ($table == EPISODE_TABLE) {
-            return 'id, series_id, season, episode, title, path, plex, emby, jellyfin, plex_remote_id, emby_remote_id, jellyfin_remote_id, poster';
+            return 'id, series_id, season, episode, title, path, plex, emby, jellyfin, silo, plex_remote_id, emby_remote_id, jellyfin_remote_id, silo_remote_id, poster';
         }
 
-        return 'id, title, year, path, plex, emby, jellyfin, plex_remote_id, emby_remote_id, jellyfin_remote_id, poster';
+        return 'id, title, year, path, plex, emby, jellyfin, silo, plex_remote_id, emby_remote_id, jellyfin_remote_id, silo_remote_id, poster';
     }
 
     public function normalizeLibraryPath($path)
@@ -628,13 +630,13 @@ trait MediaLibrary
         }
 
         $sets = [];
-        foreach (['plex', 'emby', 'jellyfin'] as $flag) {
+        foreach (['plex', 'emby', 'jellyfin', 'silo'] as $flag) {
             if (empty($keeper[$flag]) && !empty($source[$flag])) {
                 $sets[]        = "`" . $flag . "` = 1";
                 $keeper[$flag] = 1;
             }
         }
-        foreach (['plex_remote_id', 'emby_remote_id', 'jellyfin_remote_id'] as $field) {
+        foreach (['plex_remote_id', 'emby_remote_id', 'jellyfin_remote_id', 'silo_remote_id'] as $field) {
             $incoming = trim(strval($source[$field] ?? ''));
             $current  = trim(strval($keeper[$field] ?? ''));
             if ($incoming != '' && $current == '') {
