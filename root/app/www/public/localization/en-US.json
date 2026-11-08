@@ -310,6 +310,7 @@
     "mediaAppInvalidUrl": "The URL was not a media server API.",
     "mediaAppConnectionFailed": "Could not connect to the media app.",
     "mediaAppUsersFailed": "Connected, but could not list users. Use an admin token or API key.",
+    "plexUserLookupFailed": "{0} lookup failed ({1}).",
     "missingConnectionFields": "URL and token or API key are required.",
     "mustHaveMainSource": "One media app must stay marked as the main source.",
     "users": "Users",
