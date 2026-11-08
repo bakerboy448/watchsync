@@ -30,35 +30,42 @@ class MediaApps
         $this->database = $database;
     }
 
-    public function deletedUserIdents()
+    public function deletedUserIdents($mediaAppId)
     {
-        if (is_array($this->deletedUserCache)) {
-            return $this->deletedUserCache;
+        $mediaAppId = intval($mediaAppId);
+        if (!$mediaAppId) {
+            return [];
         }
 
-        $idents = [];
-        foreach ($this->database->getMediaApps() as $mediaApp) {
-            if (!$mediaApp['active'] || intval($mediaApp['platform'] ?? 0) != MediaPlatforms::PLEX || !$this->isOnline($mediaApp)) {
-                continue;
-            }
+        if (!is_array($this->deletedUserCache)) {
+            $this->deletedUserCache = [];
+        }
+        if (array_key_exists($mediaAppId, $this->deletedUserCache)) {
+            return $this->deletedUserCache[$mediaAppId];
+        }
+
+        $idents   = [];
+        $mediaApp = $this->database->getMediaApp($mediaAppId);
+        if ($mediaApp && $mediaApp['active'] && intval($mediaApp['platform'] ?? 0) == MediaPlatforms::PLEX && $this->isOnline($mediaApp)) {
             foreach ($this->plexDeletedIdents($mediaApp['url'] ?? '', $mediaApp['token'] ?? '', $mediaApp['server_id'] ?? '') as $ident => $yes) {
                 $idents[$ident] = true;
             }
         }
-        $this->deletedUserCache = $idents;
+        $this->deletedUserCache[$mediaAppId] = $idents;
 
-        return $this->deletedUserCache;
+        return $idents;
     }
 
     public function userIsDeleted($user)
     {
-        if (!$user) {
+        if (!$user || empty($user['media_app_id'])) {
             return false;
         }
 
+        $deleted = $this->deletedUserIdents($user['media_app_id']);
         foreach ([strval($user['username'] ?? ''), strval($user['email'] ?? ''), strval($user['remote_id'] ?? '')] as $ident) {
             $ident = strtolower(trim($ident));
-            if ($ident != '' && $ident != '0' && !empty($this->deletedUserIdents()[$ident])) {
+            if ($ident != '' && $ident != '0' && !empty($deleted[$ident])) {
                 return true;
             }
         }
@@ -113,6 +120,8 @@ class MediaApps
 
             $result = $this->refreshUsers($mediaApp['id']);
             if (!empty($result['error'])) {
+                logger(CRON_HOUSEKEEPER_LOG, 'user refresh skipped app=' . strval($mediaApp['name'] ?? '') . ' ' . strval($result['message'] ?? ''));
+                loggerFlush(CRON_HOUSEKEEPER_LOG);
                 continue;
             }
             $checked = true;
@@ -1467,6 +1476,7 @@ class MediaApps
         } else {
             $kept = [];
             foreach ($result['users'] ?? [] as $user) {
+                $user['media_app_id'] = $mediaApp['id'];
                 if ($this->userIsDeleted($user)) {
                     continue;
                 }

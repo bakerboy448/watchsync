@@ -361,6 +361,31 @@ trait Plex
         return $deleted == '1' || $deleted == 'true';
     }
 
+    public function plexHomeUsersResult($curl, &$response)
+    {
+        $response = is_array($curl['response'] ?? null) ? $curl['response'] : json_decode(strval($curl['response'] ?? ''), true);
+        $code     = intval($curl['code'] ?? 0);
+        if ($code >= 200 && $code <= 299 && is_array($response) && is_array($response['users'] ?? null)) {
+            return '';
+        }
+
+        return translate('plexUserLookupFailed', ['Home users', strval($code)]);
+    }
+
+    public function plexUsersXmlResult($curl, &$xml, $label)
+    {
+        $code = intval($curl['code'] ?? 0);
+        $xml  = false;
+        if ($code >= 200 && $code <= 299 && !empty($curl['response'])) {
+            $xml = $this->plexLoadXml($curl['response']);
+        }
+        if ($xml) {
+            return '';
+        }
+
+        return translate('plexUserLookupFailed', [$label, strval($code)]);
+    }
+
     public function plexDeletedIdents($url, $token, $serverId = '')
     {
         $url      = rtrim(trim($url), '/');
@@ -376,7 +401,6 @@ trait Plex
         $headers = $this->plexHeaders($token, $serverId);
         $live    = [];
         $deleted = [];
-        $sawLive = false;
         $mark    = function (&$bucket, $idents) {
             foreach ($idents as $ident) {
                 $ident = strtolower(trim(strval($ident)));
@@ -386,10 +410,11 @@ trait Plex
             }
         };
 
-        $curl     = $this->plexTvGet(MediaAppEndpoints::ENDPOINT_PLEX_TV_HOME_USERS, $headers);
-        $response = is_array($curl['response']) ? $curl['response'] : json_decode($curl['response'], true);
-        if ($curl['code'] >= 200 && $curl['code'] <= 299 && is_array($response['users'] ?? null)) {
-            $sawLive = true;
+        $curl       = $this->plexTvGet(MediaAppEndpoints::ENDPOINT_PLEX_TV_HOME_USERS, $headers);
+        $response   = [];
+        $homeError  = $this->plexHomeUsersResult($curl, $response);
+        $homeLoaded = $homeError == '';
+        if ($homeLoaded) {
             foreach ($response['users'] as $user) {
                 $idents = array_merge($this->plexUserMatchNames($user), [strval($user['uuid'] ?? ''), strval($user['id'] ?? '')]);
                 if ($this->plexUserIsDeleted($user)) {
@@ -400,11 +425,11 @@ trait Plex
             }
         }
 
-        $curl = $this->plexTvGet(MediaAppEndpoints::ENDPOINT_PLEX_TV_USERS, $this->plexHeaders($token, $serverId, 'application/xml'));
-        if ($curl['code'] >= 200 && $curl['code'] <= 299 && $curl['response']) {
-            $xml = $this->plexLoadXml($curl['response']);
-            if ($xml) {
-                $sawLive = true;
+        $curl          = $this->plexTvGet(MediaAppEndpoints::ENDPOINT_PLEX_TV_USERS, $this->plexHeaders($token, $serverId, 'application/xml'));
+        $xml           = false;
+        $friendsError  = $this->plexUsersXmlResult($curl, $xml, 'Friends');
+        $friendsLoaded = $friendsError == '';
+        if ($friendsLoaded) {
                 foreach ($xml->User as $xmlUser) {
                     $shared = [];
                     foreach ($xmlUser->attributes() as $key => $val) {
@@ -421,15 +446,15 @@ trait Plex
                     }
                     $mark($live, $idents);
                 }
-            }
         }
 
+        $sharedLoaded = !$serverId;
         if ($serverId) {
-            $curl = $this->plexTvGet(sprintf(MediaAppEndpoints::ENDPOINT_PLEX_TV_SHARED_SERVERS, rawurlencode($serverId)), $this->plexHeaders($token, $serverId, 'application/xml'));
-            if ($curl['code'] >= 200 && $curl['code'] <= 299 && $curl['response']) {
-                $xml = $this->plexLoadXml($curl['response']);
-                if ($xml) {
-                    $sawLive = true;
+            $curl         = $this->plexTvGet(sprintf(MediaAppEndpoints::ENDPOINT_PLEX_TV_SHARED_SERVERS, rawurlencode($serverId)), $this->plexHeaders($token, $serverId, 'application/xml'));
+            $xml          = false;
+            $sharedError  = $this->plexUsersXmlResult($curl, $xml, 'Shared servers');
+            $sharedLoaded = $sharedError == '';
+            if ($sharedLoaded) {
                     $servers = $xml->SharedServer ?? [];
                     if (!$servers && isset($xml->Server)) {
                         $servers = $xml->Server->SharedServer ?? [];
@@ -450,11 +475,11 @@ trait Plex
                         }
                         $mark($live, $idents);
                     }
-                }
             }
         }
 
-        if ($sawLive) {
+        $lookupsLoaded = $homeLoaded && $friendsLoaded && $sharedLoaded;
+        if ($lookupsLoaded) {
             foreach ($this->plexServerAccounts($url, $token) as $account) {
                 $id   = strval($this->plexValue($account, 'id'));
                 $name = $this->plexValue($account, 'name');
@@ -480,9 +505,9 @@ trait Plex
         foreach (array_keys($live) as $ident) {
             unset($deleted[$ident]);
         }
-        $this->plexDeletedChecked          = $sawLive;
+        $this->plexDeletedChecked          = $lookupsLoaded;
         $this->plexDeletedCache[$cacheKey] = [
-            'checked' => $sawLive,
+            'checked' => $lookupsLoaded,
             'deleted' => $deleted,
         ];
 
@@ -1193,10 +1218,13 @@ trait Plex
         $seen           = [];
         $accountAtIndex = [];
 
-        $curl     = $this->plexTvGet(MediaAppEndpoints::ENDPOINT_PLEX_TV_HOME_USERS, $headers);
-        $response = is_array($curl['response']) ? $curl['response'] : json_decode($curl['response'], true);
-        if ($curl['code'] >= 200 && $curl['code'] <= 299 && is_array($response['users'] ?? null)) {
-            foreach ($response['users'] as $user) {
+        $curl      = $this->plexTvGet(MediaAppEndpoints::ENDPOINT_PLEX_TV_HOME_USERS, $headers);
+        $response  = [];
+        $homeError = $this->plexHomeUsersResult($curl, $response);
+        if ($homeError != '') {
+            return ['error' => true, 'message' => $homeError];
+        }
+        foreach ($response['users'] as $user) {
                 if ($this->plexUserIsDeleted($user)) {
                     continue;
                 }
@@ -1231,14 +1259,15 @@ trait Plex
                         $seen[$ident] = $index;
                     }
                 }
-            }
         }
 
-        $curl = $this->plexTvGet(MediaAppEndpoints::ENDPOINT_PLEX_TV_USERS, $this->plexHeaders($token, $serverId, 'application/xml'));
-        if ($curl['code'] >= 200 && $curl['code'] <= 299 && $curl['response']) {
-            $xml = $this->plexLoadXml($curl['response']);
-            if ($xml) {
-                foreach ($xml->User as $xmlUser) {
+        $curl          = $this->plexTvGet(MediaAppEndpoints::ENDPOINT_PLEX_TV_USERS, $this->plexHeaders($token, $serverId, 'application/xml'));
+        $xml           = false;
+        $friendsError  = $this->plexUsersXmlResult($curl, $xml, 'Friends');
+        if ($friendsError != '') {
+            return ['error' => true, 'message' => $friendsError];
+        }
+        foreach ($xml->User as $xmlUser) {
                     $shared = [];
                     foreach ($xmlUser->attributes() as $key => $val) {
                         $shared[$key] = strval($val);
@@ -1307,14 +1336,14 @@ trait Plex
                         $accountAtIndex[$index] = $sharedId;
                     }
                 }
-            }
-        }
 
         if ($serverId) {
-            $curl = $this->plexTvGet(sprintf(MediaAppEndpoints::ENDPOINT_PLEX_TV_SHARED_SERVERS, rawurlencode($serverId)), $this->plexHeaders($token, $serverId, 'application/xml'));
-            if ($curl['code'] >= 200 && $curl['code'] <= 299 && $curl['response']) {
-                $xml = $this->plexLoadXml($curl['response']);
-                if ($xml) {
+            $curl        = $this->plexTvGet(sprintf(MediaAppEndpoints::ENDPOINT_PLEX_TV_SHARED_SERVERS, rawurlencode($serverId)), $this->plexHeaders($token, $serverId, 'application/xml'));
+            $xml         = false;
+            $sharedError = $this->plexUsersXmlResult($curl, $xml, 'Shared servers');
+            if ($sharedError != '') {
+                return ['error' => true, 'message' => $sharedError];
+            }
                     $servers = $xml->SharedServer ?? [];
                     if (!$servers && isset($xml->Server)) {
                         $servers = $xml->Server->SharedServer ?? [];
@@ -1382,8 +1411,6 @@ trait Plex
                             }
                         }
                     }
-                }
-            }
         }
 
         foreach ($this->plexServerAccounts($url, $token) as $account) {
