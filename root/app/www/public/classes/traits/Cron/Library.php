@@ -165,13 +165,18 @@ trait Library
         }
 
         $scan = intval($this->currentJob['scan'] ?? MediaLibraryScans::LAST_SCAN);
+        $this->libraryPathMoves      = [];
+        $this->librarySeenRemoteIds  = [];
+        $this->pendingLibraryUpdates = ['movies' => 0, 'series' => 0, 'episodes' => 0];
 
-        $knownBefore = [];
+        $knownBefore  = [];
+        $storedBefore = [];
         foreach ($apps as $mediaApp) {
             $this->stopIfCancelled();
             if (!$this->mediaAppOnline($mediaApp)) {
                 continue;
             }
+            $storedBefore[intval($mediaApp['id'])] = $this->database->getMediaAppLibraries($mediaApp['id']);
             foreach ($mediaApps->getLibraries($mediaApp, [], false) as $library) {
                 $id = intval($mediaApp['id']) . ':' . strval($library['key'] ?? '');
                 if ($id != '0:') {
@@ -179,6 +184,11 @@ trait Library
                 }
             }
             $mediaApps->refreshStoredLibraries($mediaApp);
+        }
+        $this->libraryPathMoves = $this->libraryFolderMoves($storedBefore, $apps);
+        if ($this->libraryPathMoves) {
+            $this->pushLibraryPathMoves();
+            $this->applyLibraryPathMoves();
         }
 
         if ($this->isAutomaticJob() && $this->database->settingEnabled('syncLibraryAutoMeta')) {
@@ -229,6 +239,7 @@ trait Library
             if (!$this->mediaAppOnline($mediaApp)) {
                 continue;
             }
+            $this->librarySeenRemoteIds = [];
             $libraries = $this->selectedLibraries($mediaApp);
             logger($this->logfile, 'media library ' . $mediaApp['name'] . ' libraries ' . count($libraries));
             $platformName = $mediaApps->getPlatformName($mediaApp['platform']);
@@ -260,6 +271,7 @@ trait Library
                             $remoteId = trim(strval($item['remote_id'] ?? ''));
                             if ($remoteId != '') {
                                 $seenIds[$remoteId] = true;
+                                $this->librarySeenRemoteIds[$remoteId] = true;
                             }
                         }
                     }
@@ -284,6 +296,11 @@ trait Library
                     logger($this->logfile, 'media library ' . $mediaApp['name'] . ' cleared stale remote ids ' . $cleared);
                 }
             }
+
+            foreach (['movies', 'series', 'episodes'] as $type) {
+                $updated[$type] += intval($this->pendingLibraryUpdates[$type] ?? 0);
+            }
+            $this->pendingLibraryUpdates = ['movies' => 0, 'series' => 0, 'episodes' => 0];
 
             $this->database->setMediaAppLastScan($mediaApp['id'], $scannedAt);
             $this->currentJob['stats']['added']     = intval($this->currentJob['stats']['added'] ?? 0) + $added['movies'] + $added['series'] + $added['episodes'];
@@ -332,6 +349,582 @@ trait Library
         }
 
         return true;
+    }
+
+    public function libraryFolderMoves($storedBefore, $apps)
+    {
+        global $mediaApps;
+
+        $moves = [];
+        foreach ($apps as $mediaApp) {
+            $appId = intval($mediaApp['id'] ?? 0);
+            if (!$appId || empty($storedBefore[$appId])) {
+                continue;
+            }
+            $beforeByKey = [];
+            foreach ($storedBefore[$appId] as $library) {
+                $key = strval($library['key'] ?? '');
+                if ($key != '') {
+                    $beforeByKey[$key] = $library;
+                }
+            }
+            foreach ($mediaApps->getLibraries($mediaApp, [], false) as $library) {
+                $key = strval($library['key'] ?? '');
+                if ($key == '' || empty($beforeByKey[$key])) {
+                    continue;
+                }
+                $pair = $this->libraryFolderPair($beforeByKey[$key]['paths'] ?? [], $library['paths'] ?? []);
+                if (!$pair) {
+                    continue;
+                }
+                $old = $this->database->normalizeLibraryPath($pair['old']);
+                $new = $this->database->normalizeLibraryPath($pair['new']);
+                if ($old == '' || $new == '' || strcasecmp($old, $new) == 0) {
+                    continue;
+                }
+                $moves[] = [
+                    'app_id'  => $appId,
+                    'old_raw' => $pair['old'],
+                    'new_raw' => $pair['new'],
+                    'old'     => $old,
+                    'new'     => $new,
+                    'library' => $library,
+                ];
+                logger($this->logfile, 'library folder moved ' . strval($mediaApp['name'] ?? '') . ' ' . strval($library['title'] ?? $key) . ' ' . $pair['old'] . ' -> ' . $pair['new']);
+            }
+        }
+
+        return $moves;
+    }
+
+    public function libraryFolderPair($beforePaths, $afterPaths)
+    {
+        global $mediaApps;
+
+        $before = [];
+        foreach ($beforePaths as $path) {
+            $key = $mediaApps->libraryPathKey($path);
+            if ($key != '') {
+                $before[$key] = $path;
+            }
+        }
+        $after = [];
+        foreach ($afterPaths as $path) {
+            $key = $mediaApps->libraryPathKey($path);
+            if ($key != '') {
+                $after[$key] = $path;
+            }
+        }
+        $removed = array_diff_key($before, $after);
+        $added   = array_diff_key($after, $before);
+        if (count($removed) != 1 || count($added) != 1) {
+            return [];
+        }
+
+        return [
+            'old' => array_values($removed)[0],
+            'new' => array_values($added)[0],
+        ];
+    }
+
+    public function pushLibraryPathMoves()
+    {
+        global $mediaApps;
+
+        foreach ($this->libraryPathMoves as $move) {
+            $source = $this->database->getMediaApp(intval($move['app_id'] ?? 0));
+            if (!$source) {
+                continue;
+            }
+            foreach ($this->database->getMediaApps() as $other) {
+                $this->stopIfCancelled();
+                if (!$other['active'] || intval($other['id'] ?? 0) == intval($source['id'] ?? 0)) {
+                    continue;
+                }
+                if (!$this->mediaAppOnline($other)) {
+                    logger($this->logfile, 'library path listener offline ' . strval($other['name'] ?? ''));
+                    continue;
+                }
+                $linked = $mediaApps->findLinkedLibrary($source, $move['library'] ?? [], $other);
+                if (!$linked || !$mediaApps->libraryHasFolder($linked, $move['old_raw'] ?? '')) {
+                    continue;
+                }
+                logger($this->logfile, 'library path listener ' . strval($other['name'] ?? '') . ' ' . strval($linked['title'] ?? '') . ' ' . strval($move['old_raw'] ?? '') . ' -> ' . strval($move['new_raw'] ?? ''));
+                $result = $mediaApps->updateLibraryFolder($other, $linked, $move['old_raw'] ?? '', $move['new_raw'] ?? '');
+                if (!empty($result['error'])) {
+                    logger($this->logfile, 'library path listener failed ' . strval($other['name'] ?? '') . ' ' . strval($result['message'] ?? ''));
+                }
+            }
+        }
+    }
+
+    public function applyLibraryPathMoves()
+    {
+        if (!$this->libraryPathMoves) {
+            return;
+        }
+
+        $moves    = $this->libraryPathMovesLongestFirst();
+        $movies   = $this->relocateStoredLibraryPaths(MOVIE_TABLE, $this->database->getMovies(), $moves);
+        $series   = $this->relocateStoredLibraryPaths(SERIES_TABLE, $this->database->getSeriesRows(), $moves);
+        $episodes = $this->relocateStoredLibraryPaths(EPISODE_TABLE, $this->database->getEpisodes(), $moves);
+        logger($this->logfile, 'library path moved movies=' . $movies . ' series=' . $series . ' episodes=' . $episodes);
+    }
+
+    public function libraryPathMovesLongestFirst()
+    {
+        $moves = $this->libraryPathMoves;
+        usort($moves, function ($left, $right) {
+            return strlen(strval($right['old'] ?? '')) - strlen(strval($left['old'] ?? ''));
+        });
+
+        return $moves;
+    }
+
+    public function relocateStoredLibraryPaths($table, $rows, $moves)
+    {
+        $moved = 0;
+        foreach ($rows as $row) {
+            $this->stopIfCancelled();
+            $path = $this->database->normalizeLibraryPath($row['path'] ?? '');
+            $move = $this->storedLibraryPathMove($path, $moves);
+            if (!$move) {
+                continue;
+            }
+            $next = $this->libraryPathAfterMove($path, $move);
+            if ($next == '') {
+                continue;
+            }
+            $current = $this->database->getMediaLibraryItemByPath($table, $path);
+            if (!$current || intval($current['id'] ?? 0) != intval($row['id'] ?? 0)) {
+                continue;
+            }
+            $result = $this->moveLibraryItemOntoPath($table, $current, $next, 0, '', [], true);
+            if ($result == 'updated') {
+                $moved++;
+            }
+        }
+
+        return $moved;
+    }
+
+    public function storedLibraryPathMove($path, $moves)
+    {
+        $path = $this->database->normalizeLibraryPath($path);
+        if ($path == '' || !$moves) {
+            return [];
+        }
+
+        $lower = strtolower($path);
+        foreach ($moves as $move) {
+            $old = strval($move['old'] ?? '');
+            $new = strval($move['new'] ?? '');
+            if ($old == '' || $new == '') {
+                continue;
+            }
+            $oldLower = strtolower($old);
+            if ($lower == $oldLower || str_starts_with($lower, $oldLower . '/')) {
+                return $move;
+            }
+        }
+
+        return [];
+    }
+
+    public function libraryPathAfterMove($path, $move)
+    {
+        $path = $this->database->normalizeLibraryPath($path);
+        $old  = strval($move['old'] ?? '');
+        $new  = strval($move['new'] ?? '');
+        if ($path == '' || $old == '' || $new == '') {
+            return '';
+        }
+
+        $next = $this->database->normalizeLibraryPath($new . substr($path, strlen($old)));
+        if ($next == '' || strcasecmp($next, $path) == 0) {
+            return '';
+        }
+
+        return $next;
+    }
+
+    public function libraryPathBeforeMove($path, $appId = 0)
+    {
+        if (!$this->libraryPathMoves) {
+            return '';
+        }
+        $path = $this->database->normalizeLibraryPath($path);
+        if ($path == '') {
+            return '';
+        }
+
+        $appId   = intval($appId);
+        $lower   = strtolower($path);
+        $best    = '';
+        $bestLen = -1;
+        foreach ($this->libraryPathMoves as $move) {
+            if ($appId > 0 && intval($move['app_id'] ?? 0) != $appId) {
+                continue;
+            }
+            $new = strval($move['new'] ?? '');
+            $old = strval($move['old'] ?? '');
+            if ($new == '' || $old == '') {
+                continue;
+            }
+            $newLower = strtolower($new);
+            $len      = strlen($newLower);
+            $matched  = $lower == $newLower || str_starts_with($lower, $newLower . '/');
+            if (!$matched || $len <= $bestLen) {
+                continue;
+            }
+            $best    = $this->database->normalizeLibraryPath($old . substr($path, $len));
+            $bestLen = $len;
+        }
+        if ($best == '' || strcasecmp($best, $path) == 0) {
+            return '';
+        }
+
+        return $best;
+    }
+
+    public function adoptMovedLibraryItem($table, $path, $platform, $remoteId, $meta, $appId = 0)
+    {
+        if (!$this->libraryPathMoves) {
+            return '';
+        }
+        $oldPath = $this->libraryPathBeforeMove($path, $appId);
+        if ($oldPath == '') {
+            return '';
+        }
+        $keeper = $this->findLibraryImportPathHit($table, $platform, $oldPath);
+        if (!$keeper) {
+            $keeper = $this->database->getMediaLibraryItemByPath($table, $oldPath);
+        }
+        if (!$keeper) {
+            return '';
+        }
+
+        $result = $this->moveLibraryItemOntoPath($table, $keeper, $path, $platform, $remoteId, $meta);
+        if ($result == 'updated') {
+            return 'updating';
+        }
+        if ($result == 'conflict') {
+            return 'skipping';
+        }
+
+        return '';
+    }
+
+    public function moveMatchedLibraryItem($table, $row, $path, $platform, $remoteId, $meta, $appId)
+    {
+        if (!$row || intval($row['id'] ?? 0) == 0) {
+            return '';
+        }
+
+        $path   = $this->database->normalizeLibraryPath($path);
+        $stored = $this->database->normalizeLibraryPath($row['path'] ?? '');
+        if ($path == '' || $stored == '' || strcasecmp($path, $stored) == 0) {
+            return '';
+        }
+
+        $previous = $this->libraryPathBeforeMove($path, $appId);
+        if ($previous == '' || strcasecmp($previous, $stored) != 0) {
+            return '';
+        }
+
+        $result = $this->moveLibraryItemOntoPath($table, $row, $path, $platform, $remoteId, $meta);
+        if ($result == 'updated') {
+            return 'updating';
+        }
+        if ($result == 'conflict') {
+            return 'skipping';
+        }
+
+        return '';
+    }
+
+    public function countMovedLibraryItem($moved, $bucket, &$updated, &$unchanged)
+    {
+        if ($moved == 'updating') {
+            $updated[$bucket]++;
+            return 'updating';
+        }
+        if ($moved == 'skipping') {
+            $this->database->setLastError('');
+            $unchanged[$bucket]++;
+            return 'skipping';
+        }
+
+        return '';
+    }
+
+    public function moveLibraryItemOntoPath($table, $keeper, $path, $platform, $remoteId, $meta, $unseenConflicts = false)
+    {
+        $keeperId = intval($keeper['id'] ?? 0);
+        $path     = $this->database->normalizeLibraryPath($path);
+        if (!$keeperId || $path == '') {
+            return 'failed';
+        }
+
+        $oldPath = $this->database->normalizeLibraryPath($keeper['path'] ?? '');
+        $other   = $this->database->getMediaLibraryItemByPath($table, $path);
+        if ($other && intval($other['id'] ?? 0) == $keeperId) {
+            $other = [];
+        }
+        if ($other && $this->libraryRemoteConflict($keeper, $other, $this->librarySeenRemoteIds, $unseenConflicts)) {
+            logger($this->logfile, 'library path conflict table=' . $table . ' keeper=' . $keeperId . ' other=' . intval($other['id'] ?? 0));
+            return 'conflict';
+        }
+        if ($table == SERIES_TABLE && $other && $this->seriesEpisodesConflict($keeperId, intval($other['id'] ?? 0), $unseenConflicts)) {
+            logger($this->logfile, 'library path conflict table=' . $table . ' keeper=' . $keeperId . ' other=' . intval($other['id'] ?? 0));
+            return 'conflict';
+        }
+
+        if ($other) {
+            $merged = $this->libraryRowMerged($keeper, $other, $path, $platform, $remoteId, $meta);
+            if ($table == MOVIE_TABLE) {
+                $this->database->mergeUserMovieLinks(intval($other['id']), $keeperId);
+                if (!$this->database->deleteMovieById(intval($other['id']))) {
+                    logger($this->logfile, 'library path merge failed table=' . $table . ' keeper=' . $keeperId . ' other=' . intval($other['id']));
+                    return 'failed';
+                }
+            } else if ($table == SERIES_TABLE) {
+                if (!$this->mergeSeriesEpisodes($keeperId, intval($other['id']))) {
+                    logger($this->logfile, 'library path merge failed table=' . $table . ' keeper=' . $keeperId . ' other=' . intval($other['id']));
+                    return 'failed';
+                }
+                if (!$this->database->deleteSeriesById(intval($other['id']))) {
+                    logger($this->logfile, 'library path merge failed table=' . $table . ' keeper=' . $keeperId . ' other=' . intval($other['id']));
+                    return 'failed';
+                }
+            } else {
+                $this->database->mergeUserEpisodeLinks(intval($other['id']), $keeperId);
+                if (!$this->database->deleteEpisodeById(intval($other['id']))) {
+                    logger($this->logfile, 'library path merge failed table=' . $table . ' keeper=' . $keeperId . ' other=' . intval($other['id']));
+                    return 'failed';
+                }
+            }
+            $this->dropLibraryImportItem($table, $other);
+            $keeper = $merged;
+        } else {
+            $keeper = $this->libraryRowMerged($keeper, [], $path, $platform, $remoteId, $meta);
+        }
+
+        if (!$this->writeLibraryItemRow($table, $keeper)) {
+            logger($this->logfile, 'library path merge failed table=' . $table . ' keeper=' . $keeperId);
+            return 'failed';
+        }
+        $this->retargetLibraryImportItem($table, $keeper, $oldPath);
+
+        return 'updated';
+    }
+
+    public function libraryRemoteConflict($keeper, $other, $seen, $unseenConflicts = false)
+    {
+        foreach (['plex_remote_id', 'emby_remote_id', 'jellyfin_remote_id'] as $field) {
+            $left  = trim(strval($keeper[$field] ?? ''));
+            $right = trim(strval($other[$field] ?? ''));
+            if ($left == '' || $right == '' || $left == $right) {
+                continue;
+            }
+            $leftSeen  = !empty($seen[$left]);
+            $rightSeen = !empty($seen[$right]);
+            if ($leftSeen && $rightSeen) {
+                return true;
+            }
+            if ($unseenConflicts && !$leftSeen && !$rightSeen) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function libraryRowMerged($keeper, $other, $path, $platform, $remoteId, $meta)
+    {
+        $row  = $keeper;
+        $seen = $this->librarySeenRemoteIds;
+        $row['path'] = $path;
+        if (!is_array($meta)) {
+            $meta = [];
+        }
+        if ($other) {
+            foreach (['title', 'poster'] as $field) {
+                if (trim(strval($row[$field] ?? '')) == '' && trim(strval($other[$field] ?? '')) != '') {
+                    $row[$field] = $other[$field];
+                }
+            }
+            if (intval($row['year'] ?? 0) <= 0 && intval($other['year'] ?? 0) > 0) {
+                $row['year'] = intval($other['year']);
+            }
+        }
+        if (trim(strval($row['title'] ?? '')) == '' && trim(strval($meta['title'] ?? '')) != '') {
+            $row['title'] = $meta['title'];
+        }
+        if (intval($row['year'] ?? 0) <= 0 && intval($meta['year'] ?? 0) > 0) {
+            $row['year'] = intval($meta['year']);
+        }
+        if (trim(strval($row['poster'] ?? '')) == '' && trim(strval($meta['poster'] ?? '')) != '') {
+            $row['poster'] = $meta['poster'];
+        }
+
+        $incomingField = $this->database->mediaLibraryRemoteField($platform);
+        foreach (['plex', 'emby', 'jellyfin'] as $name) {
+            $field = $name . '_remote_id';
+            $left  = trim(strval($row[$field] ?? ''));
+            $right = $other ? trim(strval($other[$field] ?? '')) : '';
+            if ($incomingField == $field && $left == '' && trim(strval($remoteId)) != '') {
+                $left = trim(strval($remoteId));
+            }
+            if ($left == '' && $right != '') {
+                $left = $right;
+            } else if ($left != '' && $right != '' && $left != $right && !empty($seen[$right]) && empty($seen[$left])) {
+                $left = $right;
+            }
+            $row[$field] = $left;
+            if ($left != '' || !empty($row[$name]) || ($other && !empty($other[$name]))) {
+                $row[$name] = $left != '' ? 1 : intval($row[$name] ?? 0);
+            }
+            if ($other && !empty($other[$name])) {
+                $row[$name] = 1;
+            }
+        }
+
+        return $row;
+    }
+
+    public function writeLibraryItemRow($table, $row)
+    {
+        $id = intval($row['id'] ?? 0);
+        if (!$id) {
+            return false;
+        }
+
+        $sets = [
+            "`path` = '" . $this->database->prepare($this->database->normalizeLibraryPath($row['path'] ?? '')) . "'",
+            "`plex` = " . intval($row['plex'] ?? 0),
+            "`emby` = " . intval($row['emby'] ?? 0),
+            "`jellyfin` = " . intval($row['jellyfin'] ?? 0),
+            "`plex_remote_id` = " . $this->database->sqlStringOrNull($row['plex_remote_id'] ?? ''),
+            "`emby_remote_id` = " . $this->database->sqlStringOrNull($row['emby_remote_id'] ?? ''),
+            "`jellyfin_remote_id` = " . $this->database->sqlStringOrNull($row['jellyfin_remote_id'] ?? ''),
+        ];
+        if ($table != EPISODE_TABLE) {
+            $sets[] = "`title` = '" . $this->database->prepare($row['title'] ?? '') . "'";
+            $sets[] = "`year` = " . intval($row['year'] ?? 0);
+            $sets[] = "`poster` = '" . $this->database->prepare($row['poster'] ?? '') . "'";
+        } else {
+            $sets[] = "`title` = '" . $this->database->prepare($row['title'] ?? '') . "'";
+            $sets[] = "`poster` = '" . $this->database->prepare($row['poster'] ?? '') . "'";
+        }
+        $sql = "UPDATE " . $table . "
+                SET " . implode(', ', $sets) . "
+                WHERE id = " . $id;
+        if (!$this->database->query($sql)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    public function seriesEpisodesConflict($keeperId, $otherId, $unseenConflicts = false)
+    {
+        $keeperEpisodes = $this->database->getEpisodesBySeriesId($keeperId);
+        foreach ($this->database->getEpisodesBySeriesId($otherId) as $episode) {
+            $collision = $this->episodeCollision($keeperEpisodes, $episode);
+            if ($collision && $this->libraryRemoteConflict($collision, $episode, $this->librarySeenRemoteIds, $unseenConflicts)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function episodeCollision($episodes, $episode)
+    {
+        $path = strtolower($this->database->normalizeLibraryPath($episode['path'] ?? ''));
+        foreach ($episodes as $row) {
+            $rowPath = strtolower($this->database->normalizeLibraryPath($row['path'] ?? ''));
+            if ($path != '' && $rowPath == $path) {
+                return $row;
+            }
+            foreach (['plex_remote_id', 'emby_remote_id', 'jellyfin_remote_id'] as $field) {
+                $left  = trim(strval($row[$field] ?? ''));
+                $right = trim(strval($episode[$field] ?? ''));
+                if ($left != '' && $left == $right) {
+                    return $row;
+                }
+            }
+        }
+
+        return [];
+    }
+
+    public function mergeSeriesEpisodes($keeperId, $otherId)
+    {
+        $keeperEpisodes = $this->database->getEpisodesBySeriesId($keeperId);
+        foreach ($this->database->getEpisodesBySeriesId($otherId) as $episode) {
+            $collision = $this->episodeCollision($keeperEpisodes, $episode);
+            if ($collision) {
+                $targetPath = trim(strval($episode['path'] ?? '')) != '' ? $episode['path'] : strval($collision['path'] ?? '');
+                $merged     = $this->libraryRowMerged($collision, $episode, $targetPath, 0, '', []);
+                $this->database->mergeUserEpisodeLinks(intval($episode['id']), intval($collision['id']));
+                if (!$this->database->deleteEpisodeById(intval($episode['id']))) {
+                    return false;
+                }
+                $this->dropLibraryImportItem(EPISODE_TABLE, $episode);
+                if (!$this->writeLibraryItemRow(EPISODE_TABLE, $merged)) {
+                    return false;
+                }
+                $this->retargetLibraryImportItem(EPISODE_TABLE, $merged, $collision['path'] ?? '');
+                foreach ($keeperEpisodes as $index => $row) {
+                    if (intval($row['id'] ?? 0) == intval($collision['id'] ?? 0)) {
+                        $keeperEpisodes[$index] = $merged;
+                        break;
+                    }
+                }
+                continue;
+            }
+            if (!$this->database->setEpisodeSeriesId(intval($episode['id']), $keeperId)) {
+                return false;
+            }
+            $episode['series_id'] = $keeperId;
+            $this->rememberLibraryImportItem(EPISODE_TABLE, $episode);
+        }
+
+        return true;
+    }
+
+    public function dropLibraryImportItem($table, $row)
+    {
+        if (!$this->libraryImportIndex || !$row) {
+            return;
+        }
+        $bucket = $this->libraryImportBucket($table);
+        $id     = intval($row['id'] ?? 0);
+        $path   = strtolower($this->database->normalizeLibraryPath($row['path'] ?? ''));
+        if ($path != '' && intval($this->libraryImportIndex['path'][$bucket][$path]['id'] ?? 0) == $id) {
+            unset($this->libraryImportIndex['path'][$bucket][$path]);
+        }
+        $field = $this->database->mediaLibraryRemoteField($this->libraryImportIndex['platform'] ?? 0);
+        $remote = $field != '' ? trim(strval($row[$field] ?? '')) : '';
+        if ($remote != '' && intval($this->libraryImportIndex['remote'][$bucket][$remote]['id'] ?? 0) == $id) {
+            unset($this->libraryImportIndex['remote'][$bucket][$remote]);
+        }
+    }
+
+    public function retargetLibraryImportItem($table, $row, $oldPath)
+    {
+        if (!$this->libraryImportIndex) {
+            return;
+        }
+        $bucket = $this->libraryImportBucket($table);
+        $id     = intval($row['id'] ?? 0);
+        $old    = strtolower($this->database->normalizeLibraryPath($oldPath));
+        if ($old != '' && intval($this->libraryImportIndex['path'][$bucket][$old]['id'] ?? 0) == $id) {
+            unset($this->libraryImportIndex['path'][$bucket][$old]);
+        }
+        $this->rememberLibraryImportItem($table, $row);
     }
 
     public function libraryImportBucket($table)
@@ -630,21 +1223,44 @@ trait Library
         $platform   = $mediaApp['platform'];
         $remoteId   = $item['series_remote_id'] ?? '';
 
+        $seriesMeta = [
+            'title'  => $item['series'] ?? '',
+            'year'   => $seriesYear,
+            'poster' => $item['series_poster'] ?? '',
+        ];
         $seriesRow = $this->findLibraryImportItem(SERIES_TABLE, $platform, $remoteId, $seriesPath);
         if ($seriesRow) {
+            $moved = $this->moveMatchedLibraryItem(SERIES_TABLE, $seriesRow, $seriesPath, $platform, $remoteId, $seriesMeta, intval($mediaApp['id'] ?? 0));
+            if ($moved == 'updating') {
+                $this->pendingLibraryUpdates['series'] = intval($this->pendingLibraryUpdates['series'] ?? 0) + 1;
+                return intval($seriesRow['id']);
+            }
+            if ($moved == 'skipping') {
+                $this->database->setLastError('library path conflict');
+                return 0;
+            }
             $outcome = $this->libraryItemOutcomeFromRow($seriesRow, $platform, $remoteId, $seriesPath);
             if ($outcome == 'updated') {
-                $this->applyLibraryImportRowUpdate(SERIES_TABLE, $platform, $remoteId, $seriesPath, $seriesRow, [
-                    'title'  => $item['series'] ?? '',
-                    'year'   => $seriesYear,
-                    'poster' => $item['series_poster'] ?? '',
-                ]);
+                $this->applyLibraryImportRowUpdate(SERIES_TABLE, $platform, $remoteId, $seriesPath, $seriesRow, $seriesMeta);
             }
             return intval($seriesRow['id']);
         }
 
         if ($seriesPath == '') {
             $this->database->setLastError('empty series path for episode');
+            return 0;
+        }
+
+        $adopted = $this->adoptMovedLibraryItem(SERIES_TABLE, $seriesPath, $platform, $remoteId, $seriesMeta, intval($mediaApp['id'] ?? 0));
+        if ($adopted == 'updating') {
+            $this->pendingLibraryUpdates['series'] = intval($this->pendingLibraryUpdates['series'] ?? 0) + 1;
+            $seriesRow = $this->findLibraryImportPathHit(SERIES_TABLE, $platform, $seriesPath);
+            if ($seriesRow) {
+                return intval($seriesRow['id']);
+            }
+        }
+        if ($adopted == 'skipping') {
+            $this->database->setLastError('library path conflict');
             return 0;
         }
 
@@ -669,11 +1285,17 @@ trait Library
 
         $seriesRow = $this->findLibraryImportItem(SERIES_TABLE, $platform, $remoteId, $seriesPath);
         if ($seriesRow) {
-            $this->applyLibraryImportRowUpdate(SERIES_TABLE, $platform, $remoteId, $seriesPath, $seriesRow, [
-                'title'  => $item['series'] ?? '',
-                'year'   => $seriesYear,
-                'poster' => $item['series_poster'] ?? '',
-            ]);
+            $moved = $this->moveMatchedLibraryItem(SERIES_TABLE, $seriesRow, $seriesPath, $platform, $remoteId, $seriesMeta, intval($mediaApp['id'] ?? 0));
+            if ($moved == 'updating') {
+                $this->pendingLibraryUpdates['series'] = intval($this->pendingLibraryUpdates['series'] ?? 0) + 1;
+                $this->database->setLastError('');
+                return intval($seriesRow['id']);
+            }
+            if ($moved == 'skipping') {
+                $this->database->setLastError('library path conflict');
+                return 0;
+            }
+            $this->applyLibraryImportRowUpdate(SERIES_TABLE, $platform, $remoteId, $seriesPath, $seriesRow, $seriesMeta);
             $this->database->setLastError('');
             return intval($seriesRow['id']);
         }
@@ -822,6 +1444,15 @@ trait Library
                 $row  = $this->findLibraryImportItem($table, $platform, $remoteId, $path);
             }
         }
+        $itemMeta = [
+            'title'  => $title,
+            'year'   => $year,
+            'poster' => $poster,
+        ];
+        $moved = $this->countMovedLibraryItem($this->moveMatchedLibraryItem($table, $row, $path, $platform, $remoteId, $itemMeta, intval($mediaApp['id'] ?? 0)), $bucket, $updated, $unchanged);
+        if ($moved != '') {
+            return $moved;
+        }
         $outcome = $this->libraryItemOutcomeFromRow($row, $platform, $remoteId, $path);
 
         if ($outcome == 'unchanged' && $row) {
@@ -829,17 +1460,24 @@ trait Library
         }
 
         if ($outcome == 'updated' && $row) {
-            $this->applyLibraryImportRowUpdate($table, $platform, $remoteId, $path, $row, [
-                'title'  => $title,
-                'year'   => $year,
-                'poster' => $poster,
-            ]);
+            $this->applyLibraryImportRowUpdate($table, $platform, $remoteId, $path, $row, $itemMeta);
             return $this->countLibraryOutcome($outcome, $bucket, $added, $updated, $unchanged);
         }
 
         if ($path == '') {
             $this->database->setLastError('empty ' . $type . ' path');
             return '';
+        }
+
+        $adopted = $this->adoptMovedLibraryItem($table, $path, $platform, $remoteId, $itemMeta, intval($mediaApp['id'] ?? 0));
+        if ($adopted == 'updating') {
+            $updated[$bucket]++;
+            return 'updating';
+        }
+        if ($adopted == 'skipping') {
+            $this->database->setLastError('');
+            $unchanged[$bucket]++;
+            return 'skipping';
         }
 
         $flags = $this->platformFlags($platform, $remoteId);
@@ -860,17 +1498,18 @@ trait Library
                 }
                 $row = $pathHit;
             }
+            $moved = $this->countMovedLibraryItem($this->moveMatchedLibraryItem($table, $row, $path, $platform, $remoteId, $itemMeta, intval($mediaApp['id'] ?? 0)), $bucket, $updated, $unchanged);
+            if ($moved != '') {
+                $this->database->setLastError('');
+                return $moved;
+            }
             $outcome = $this->libraryItemOutcomeFromRow($row, $platform, $remoteId, $path);
             if ($outcome != 'added' && $row) {
                 $this->database->setLastError('');
                 if ($outcome == 'unchanged') {
                     return $this->countLibraryOutcome($outcome, $bucket, $added, $updated, $unchanged);
                 }
-                $this->applyLibraryImportRowUpdate($table, $platform, $remoteId, $path, $row, [
-                    'title'  => $title,
-                    'year'   => $year,
-                    'poster' => $poster,
-                ]);
+                $this->applyLibraryImportRowUpdate($table, $platform, $remoteId, $path, $row, $itemMeta);
                 return $this->countLibraryOutcome($outcome, $bucket, $added, $updated, $unchanged);
             }
             if ($this->database->getLastError() == '') {
@@ -917,6 +1556,10 @@ trait Library
                 }
             }
         }
+        $moved = $this->countMovedLibraryItem($this->moveMatchedLibraryItem(EPISODE_TABLE, $row, $path, $platform, $remoteId, [], intval($mediaApp['id'] ?? 0)), 'episodes', $updated, $unchanged);
+        if ($moved != '') {
+            return $moved;
+        }
         $outcome = $this->libraryItemOutcomeFromRow($row, $platform, $remoteId, $path);
 
         if ($outcome == 'unchanged' && $row) {
@@ -933,6 +1576,17 @@ trait Library
         if ($path == '') {
             $this->database->setLastError('empty episode path');
             return '';
+        }
+
+        $adopted = $this->adoptMovedLibraryItem(EPISODE_TABLE, $path, $platform, $remoteId, [], intval($mediaApp['id'] ?? 0));
+        if ($adopted == 'updating') {
+            $updated['episodes']++;
+            return 'updating';
+        }
+        if ($adopted == 'skipping') {
+            $this->database->setLastError('');
+            $unchanged['episodes']++;
+            return 'skipping';
         }
 
         $seriesId = $this->resolveEpisodeSeriesId($mediaApp, $item, $path);
@@ -957,6 +1611,11 @@ trait Library
                     return 'skipping';
                 }
             }
+            $moved = $this->countMovedLibraryItem($this->moveMatchedLibraryItem(EPISODE_TABLE, $row, $path, $platform, $remoteId, [], intval($mediaApp['id'] ?? 0)), 'episodes', $updated, $unchanged);
+            if ($moved != '') {
+                $this->database->setLastError('');
+                return $moved;
+            }
             $outcome = $this->libraryItemOutcomeFromRow($row, $platform, $remoteId, $path);
             if ($outcome != 'added' && $row) {
                 $this->database->setLastError('');
@@ -976,6 +1635,11 @@ trait Library
                 }
                 if ($row) {
                     $this->rememberLibraryImportItem(EPISODE_TABLE, $row);
+                    $moved = $this->countMovedLibraryItem($this->moveMatchedLibraryItem(EPISODE_TABLE, $row, $path, $platform, $remoteId, [], intval($mediaApp['id'] ?? 0)), 'episodes', $updated, $unchanged);
+                    if ($moved != '') {
+                        $this->database->setLastError('');
+                        return $moved;
+                    }
                     $outcome = $this->libraryItemOutcomeFromRow($row, $platform, $remoteId, $path);
                     if ($outcome == 'unchanged') {
                         $unchanged['episodes']++;

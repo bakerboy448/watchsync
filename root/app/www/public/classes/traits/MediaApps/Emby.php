@@ -691,6 +691,37 @@ trait Emby
         return ['error' => true, 'message' => $this->embyApiError($last) ?: translate('couldNotSaveSettings')];
     }
 
+    public function embyUpdateLibraryPath($url, $apikey, $library, $paths)
+    {
+        $url    = rtrim(trim($url), '/');
+        $folder = $this->embyVirtualFolder($url, $apikey, $library);
+        $id     = trim(strval($folder['id'] ?? ''));
+        if ($id == '' || !$paths) {
+            return ['error' => true, 'message' => translate('couldNotSaveSettings')];
+        }
+
+        $pathInfos = [];
+        foreach ($paths as $path) {
+            $pathInfos[] = ['Path' => $path];
+        }
+        $headers = $this->embyHeaders($apikey, $this->embyAdminUserId($url, $apikey));
+        $headers[] = 'Content-Type: application/json';
+        $curl = curl(sprintf(MediaAppEndpoints::ENDPOINT_EMBY_VIRTUAL_FOLDERS_PATHS, $url), $headers, 'POST', json_encode([
+            'Id'       => $id,
+            'PathInfo' => $pathInfos,
+        ]));
+        if ($curl['code'] < 200 || $curl['code'] > 299) {
+            return ['error' => true, 'message' => $this->embyApiError($curl) ?: translate('couldNotSaveSettings')];
+        }
+
+        $refresh = curl(sprintf(MediaAppEndpoints::ENDPOINT_EMBY_LIBRARY_REFRESH, $url), $headers, 'POST');
+        if ($refresh['code'] < 200 || $refresh['code'] > 299) {
+            return ['error' => true, 'message' => $this->embyApiError($refresh) ?: translate('couldNotSaveSettings')];
+        }
+
+        return ['error' => false];
+    }
+
     public function embyApiError($curl)
     {
         $response = $curl['response'] ?? '';

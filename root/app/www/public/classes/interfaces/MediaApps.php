@@ -69,6 +69,8 @@ interface MediaAppEndpoints
     public const ENDPOINT_PLEX_LIBRARIES              = '%s/library/sections';
     public const ENDPOINT_PLEX_LIBRARIES_CREATE       = '%s/library/sections?%s';
     public const ENDPOINT_PLEX_LIBRARY                = '%s/library/sections/%s';
+    public const ENDPOINT_PLEX_LIBRARY_Q              = '%s/library/sections/%s?%s';
+    public const ENDPOINT_PLEX_LIBRARY_REFRESH        = '%s/library/sections/%s/refresh';
     public const ENDPOINT_PLEX_LIBRARY_ITEMS          = '%s/library/sections/%s/all?type=%s&X-Plex-Container-Start=%s&X-Plex-Container-Size=%s';
     public const ENDPOINT_PLEX_SERIES_EPISODES        = '%s/library/metadata/%s/allLeaves?X-Plex-Container-Start=%s&X-Plex-Container-Size=%s';
     public const ENDPOINT_PLEX_METADATA               = '%s/library/metadata/%s?includeGuids=1&checkFiles=1';
@@ -97,6 +99,8 @@ interface MediaAppEndpoints
     public const ENDPOINT_EMBY_VIRTUAL_FOLDERS        = '%s/Library/VirtualFolders';
     public const ENDPOINT_EMBY_VIRTUAL_FOLDERS_Q      = '%s/Library/VirtualFolders?%s';
     public const ENDPOINT_EMBY_VIRTUAL_FOLDERS_DELETE = '%s/Library/VirtualFolders/Delete?%s';
+    public const ENDPOINT_EMBY_VIRTUAL_FOLDERS_PATHS = '%s/Library/VirtualFolders/Paths/Update';
+    public const ENDPOINT_EMBY_LIBRARY_REFRESH       = '%s/Library/Refresh';
     public const ENDPOINT_EMBY_ITEMS                  = '%s/Items?%s';
     public const ENDPOINT_EMBY_USER_ITEMS             = '%s/Users/%s/Items?%s';
     public const ENDPOINT_EMBY_USER_ITEM              = '%s/Users/%s/Items/%s';
@@ -113,7 +117,10 @@ interface MediaAppEndpoints
     public const ENDPOINT_JELLYFIN_INFO              = '%s/System/Info';
     public const ENDPOINT_JELLYFIN_LIBRARIES         = '%s/Library/MediaFolders';
     public const ENDPOINT_JELLYFIN_VIRTUAL_FOLDERS   = '%s/Library/VirtualFolders';
-    public const ENDPOINT_JELLYFIN_VIRTUAL_FOLDERS_Q = '%s/Library/VirtualFolders?%s';
+    public const ENDPOINT_JELLYFIN_VIRTUAL_FOLDERS_Q            = '%s/Library/VirtualFolders?%s';
+    public const ENDPOINT_JELLYFIN_VIRTUAL_FOLDERS_PATHS        = '%s/Library/VirtualFolders/Paths?%s';
+    public const ENDPOINT_JELLYFIN_VIRTUAL_FOLDERS_PATHS_UPDATE = '%s/Library/VirtualFolders/Paths/Update?%s';
+    public const ENDPOINT_JELLYFIN_LIBRARY_REFRESH              = '%s/Library/Refresh';
     public const ENDPOINT_JELLYFIN_ITEMS             = '%s/Items?%s';
     public const ENDPOINT_JELLYFIN_USER_ITEMS        = '%s/Users/%s/Items?%s';
     public const ENDPOINT_JELLYFIN_USER_ITEM         = '%s/Users/%s/Items/%s';
