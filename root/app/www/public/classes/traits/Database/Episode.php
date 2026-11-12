@@ -35,6 +35,26 @@ trait Episode
         return $row ?: [];
     }
 
+    public function getEpisodesBySeriesId($seriesId)
+    {
+        $episodes = [];
+        $seriesId = intval($seriesId);
+        if (!$seriesId) {
+            return $episodes;
+        }
+
+        $sql = "SELECT id, series_id, season, episode, title, path, plex, emby, jellyfin, plex_remote_id, emby_remote_id, jellyfin_remote_id, poster
+                FROM " . EPISODE_TABLE . "
+                WHERE series_id = " . $seriesId . "
+                ORDER BY season ASC, episode ASC, id ASC";
+        $res = $this->query($sql);
+        while ($row = $this->fetchAssoc($res)) {
+            $episodes[] = $row;
+        }
+
+        return $episodes;
+    }
+
     public function getEpisodeByRemoteId($platform, $remoteId)
     {
         $field = $this->mediaLibraryRemoteField($platform);

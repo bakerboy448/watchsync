@@ -547,6 +547,89 @@ trait Jellyfin
         return ['error' => true, 'message' => $this->embyApiError($last) ?: translate('couldNotSaveSettings')];
     }
 
+    public function jellyfinLibraryPaths($url, $apikey, $library)
+    {
+        $name = strtolower(trim(strval($library['title'] ?? '')));
+        $key  = strval($library['key'] ?? '');
+        foreach ($this->jellyfinGetLibraries($url, $apikey, true) as $item) {
+            $itemKey  = strval($item['key'] ?? '');
+            $itemName = strtolower(trim(strval($item['title'] ?? '')));
+            if (($key != '' && $itemKey == $key) || ($name != '' && $itemName == $name)) {
+                return $item['paths'] ?? [];
+            }
+        }
+
+        return [];
+    }
+
+    public function jellyfinUpdateLibraryPath($url, $apikey, $library, $oldPath, $newPath)
+    {
+        $url  = rtrim(trim($url), '/');
+        $name = trim(strval($library['title'] ?? ''));
+        if ($name == '' || $oldPath == '' || $newPath == '') {
+            return ['error' => true, 'message' => translate('couldNotSaveSettings')];
+        }
+
+        $headers   = $this->jellyfinHeaders($apikey);
+        $headers[] = 'Content-Type: application/json';
+        $query     = http_build_query([
+            'name'    => $name,
+            'path'    => $oldPath,
+            'newPath' => $newPath,
+        ]);
+        $payload = json_encode([
+            'Name'     => $name,
+            'PathInfo' => ['Path' => $newPath],
+        ]);
+        $curl = curl(sprintf(MediaAppEndpoints::ENDPOINT_JELLYFIN_VIRTUAL_FOLDERS_PATHS_UPDATE, $url, $query), $headers, 'POST', $payload);
+        if ($curl['code'] < 200 || $curl['code'] > 299) {
+            return ['error' => true, 'message' => $curl['error'] ?: translate('couldNotSaveSettings')];
+        }
+
+        $oldKey  = $this->libraryPathKey($oldPath);
+        $newKey  = $this->libraryPathKey($newPath);
+        $hasOld  = false;
+        $hasNew  = false;
+        foreach ($this->jellyfinLibraryPaths($url, $apikey, $library) as $folder) {
+            $folderKey = $this->libraryPathKey($folder);
+            if ($folderKey == $oldKey) {
+                $hasOld = true;
+            }
+            if ($folderKey == $newKey) {
+                $hasNew = true;
+            }
+        }
+        if ($hasOld || !$hasNew) {
+            $add = curl(sprintf(MediaAppEndpoints::ENDPOINT_JELLYFIN_VIRTUAL_FOLDERS_PATHS, $url, http_build_query([
+                'refreshLibrary' => 'false',
+            ])), $headers, 'POST', json_encode([
+                'Name'     => $name,
+                'Path'     => $newPath,
+                'PathInfo' => ['Path' => $newPath],
+            ]));
+            if ($add['code'] < 200 || $add['code'] > 299) {
+                return ['error' => true, 'message' => $add['error'] ?: translate('couldNotSaveSettings')];
+            }
+            if ($hasOld) {
+                $remove = curl(sprintf(MediaAppEndpoints::ENDPOINT_JELLYFIN_VIRTUAL_FOLDERS_PATHS, $url, http_build_query([
+                    'name'           => $name,
+                    'path'           => $oldPath,
+                    'refreshLibrary' => 'false',
+                ])), $headers, 'DELETE');
+                if ($remove['code'] < 200 || $remove['code'] > 299) {
+                    return ['error' => true, 'message' => $remove['error'] ?: translate('couldNotSaveSettings')];
+                }
+            }
+        }
+
+        $refresh = curl(sprintf(MediaAppEndpoints::ENDPOINT_JELLYFIN_LIBRARY_REFRESH, $url), $headers, 'POST');
+        if ($refresh['code'] < 200 || $refresh['code'] > 299) {
+            return ['error' => true, 'message' => $refresh['error'] ?: translate('couldNotSaveSettings')];
+        }
+
+        return ['error' => false];
+    }
+
     public function jellyfinCreateUser($url, $apikey, $username, $password = '')
     {
         $url      = rtrim(trim($url), '/');

@@ -1325,6 +1325,129 @@ class MediaApps
         return [];
     }
 
+    public function findLinkedLibrary($sourceApp, $sourceLibrary, $otherApp, $otherLibraries = [])
+    {
+        if (!$otherLibraries) {
+            $otherLibraries = $this->getLibraries($otherApp, [], false);
+        }
+
+        $sourceId  = intval($sourceApp['id'] ?? 0);
+        $otherId   = intval($otherApp['id'] ?? 0);
+        $sourceKey = strval($sourceLibrary['key'] ?? '');
+        $wanted    = [];
+        if ($sourceKey != '') {
+            $direct = $this->database->getMediaAppLibraryLinkForApp($sourceId, $sourceKey, $otherId);
+            if ($direct) {
+                $wanted[] = strval($direct['linked_library_key'] ?? '');
+            }
+            $back = $this->database->getMediaAppLibraryLink($sourceId, $sourceKey);
+            if ($back && intval($back['media_app_id'] ?? 0) == $otherId) {
+                $wanted[] = strval($back['library_key'] ?? '');
+            }
+            if ($back) {
+                $sibling = $this->database->getMediaAppLibraryLinkForApp(intval($back['media_app_id'] ?? 0), strval($back['library_key'] ?? ''), $otherId);
+                if ($sibling) {
+                    $wanted[] = strval($sibling['linked_library_key'] ?? '');
+                }
+            }
+        }
+
+        foreach ($otherLibraries as $library) {
+            $key  = strval($library['key'] ?? '');
+            $guid = strval($library['guid'] ?? '');
+            foreach ($wanted as $linkKey) {
+                if ($linkKey != '' && ($key == $linkKey || $guid == $linkKey)) {
+                    return $library;
+                }
+            }
+        }
+
+        $title = strtolower(trim(strval($sourceLibrary['title'] ?? '')));
+        if ($title != '') {
+            foreach ($otherLibraries as $library) {
+                if (strtolower(trim(strval($library['title'] ?? ''))) == $title) {
+                    return $library;
+                }
+            }
+        }
+
+        return [];
+    }
+
+    public function libraryHasFolder($library, $path)
+    {
+        $want = $this->libraryPathKey($path);
+        if ($want == '') {
+            return false;
+        }
+        foreach ($library['paths'] ?? [] as $folder) {
+            if ($this->libraryPathKey($folder) == $want) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function replaceLibraryFolder($library, $oldPath, $newPath)
+    {
+        $oldKey = $this->libraryPathKey($oldPath);
+        $paths  = [];
+        $exact  = '';
+        $found  = false;
+        foreach ($library['paths'] ?? [] as $folder) {
+            $folder = strval($folder);
+            if (!$found && $this->libraryPathKey($folder) == $oldKey) {
+                $paths[] = $newPath;
+                $exact   = $folder;
+                $found   = true;
+                continue;
+            }
+            if (trim($folder) != '') {
+                $paths[] = $folder;
+            }
+        }
+        if (!$found) {
+            return [];
+        }
+
+        return [
+            'paths' => $paths,
+            'old'   => $exact,
+        ];
+    }
+
+    public function updateLibraryFolder($mediaApp, $library, $oldPath, $newPath)
+    {
+        if (!$this->isOnline($mediaApp)) {
+            return ['error' => true, 'message' => translate('offline')];
+        }
+
+        $replaced = $this->replaceLibraryFolder($library, $oldPath, $newPath);
+        if (!$replaced) {
+            return ['error' => true, 'message' => translate('couldNotSaveSettings')];
+        }
+
+        switch (intval($mediaApp['platform'] ?? 0)) {
+            case MediaPlatforms::PLEX:
+                $result = $this->plexUpdateLibraryPath($mediaApp['url'] ?? '', $mediaApp['token'] ?? '', $library, $replaced['paths']);
+                break;
+            case MediaPlatforms::EMBY:
+                $result = $this->embyUpdateLibraryPath($mediaApp['url'] ?? '', $mediaApp['apikey'] ?? '', $library, $replaced['paths']);
+                break;
+            case MediaPlatforms::JELLYFIN:
+                $result = $this->jellyfinUpdateLibraryPath($mediaApp['url'] ?? '', $mediaApp['apikey'] ?? '', $library, $replaced['old'], $newPath);
+                break;
+            default:
+                return ['error' => true, 'message' => translate('mediaAppNotFound')];
+        }
+        if (empty($result['error'])) {
+            $this->refreshStoredLibraries($mediaApp);
+        }
+
+        return $result;
+    }
+
     public function libraryPathSet($library)
     {
         $paths = [];

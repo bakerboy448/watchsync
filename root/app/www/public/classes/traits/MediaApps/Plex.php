@@ -137,6 +137,7 @@ trait Plex
                 'key'        => $this->plexValue($directory, 'key'),
                 'title'      => $this->plexValue($directory, 'title'),
                 'type'       => $type,
+                'agent'      => $this->plexValue($directory, 'agent'),
                 'paths'      => $paths,
                 'updated_at' => intval($this->plexValue($directory, 'updatedAt')),
                 'scanned_at' => intval($this->plexValue($directory, 'scannedAt')),
@@ -1971,6 +1972,36 @@ trait Plex
         $curl = curl(sprintf(MediaAppEndpoints::ENDPOINT_PLEX_LIBRARY, $url, rawurlencode($libraryKey)), $this->plexHeaders($token), 'DELETE');
         if ($curl['code'] < 200 || $curl['code'] > 299) {
             return ['error' => true, 'message' => $curl['error'] ?: translate('couldNotSaveSettings')];
+        }
+
+        return ['error' => false];
+    }
+
+    public function plexUpdateLibraryPath($url, $token, $library, $paths)
+    {
+        $url  = rtrim(trim($url), '/');
+        $key  = trim(strval($library['key'] ?? ''));
+        $type = strval($library['type'] ?? '');
+        if ($key == '' || !$paths) {
+            return ['error' => true, 'message' => translate('couldNotSaveSettings')];
+        }
+
+        $agent = trim(strval($library['agent'] ?? ''));
+        if ($agent == '') {
+            $agent = $type == 'show' ? 'tv.plex.agents.series' : 'tv.plex.agents.movie';
+        }
+        $qs = 'agent=' . rawurlencode($agent);
+        foreach ($paths as $path) {
+            $qs .= '&location=' . rawurlencode($path);
+        }
+        $curl = curl(sprintf(MediaAppEndpoints::ENDPOINT_PLEX_LIBRARY_Q, $url, rawurlencode($key), $qs), $this->plexHeaders($token), 'PUT');
+        if ($curl['code'] < 200 || $curl['code'] > 299) {
+            return ['error' => true, 'message' => $curl['error'] ?: translate('couldNotSaveSettings')];
+        }
+
+        $refresh = curl(sprintf(MediaAppEndpoints::ENDPOINT_PLEX_LIBRARY_REFRESH, $url, rawurlencode($key)), $this->plexHeaders($token), 'GET');
+        if ($refresh['code'] < 200 || $refresh['code'] > 299) {
+            return ['error' => true, 'message' => $refresh['error'] ?: translate('couldNotSaveSettings')];
         }
 
         return ['error' => false];

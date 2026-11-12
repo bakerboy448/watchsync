@@ -554,6 +554,118 @@ trait MediaLibrary
         return $this->matchedRows();
     }
 
+    public function watchLinkScore($row)
+    {
+        $finished   = intval($row['finished'] ?? 0);
+        $inprogress = intval($row['inprogress'] ?? 0);
+        $started    = intval($row['started'] ?? 0);
+        if ($finished) {
+            return [3, $finished, $inprogress, $started];
+        }
+        if ($inprogress) {
+            return [2, 0, $inprogress, $started];
+        }
+        if ($started) {
+            return [1, 0, 0, $started];
+        }
+
+        return [0, 0, 0, 0];
+    }
+
+    public function watchLinkIsFurther($candidate, $current)
+    {
+        $left  = $this->watchLinkScore($candidate);
+        $right = $this->watchLinkScore($current);
+        foreach ([0, 1, 2, 3] as $index) {
+            if ($left[$index] == $right[$index]) {
+                continue;
+            }
+
+            return $left[$index] > $right[$index];
+        }
+
+        return false;
+    }
+
+    public function mergeUserMovieLinks($fromId, $toId)
+    {
+        return $this->mergeUserItemLinks(USER_MOVIE_LINK_TABLE, 'movie_id', $fromId, $toId);
+    }
+
+    public function mergeUserEpisodeLinks($fromId, $toId)
+    {
+        return $this->mergeUserItemLinks(USER_EPISODE_LINK_TABLE, 'episode_id', $fromId, $toId);
+    }
+
+    public function mergeUserItemLinks($table, $column, $fromId, $toId)
+    {
+        $fromId = intval($fromId);
+        $toId   = intval($toId);
+        if (!$fromId || !$toId || $fromId == $toId) {
+            return 0;
+        }
+        if ($column != 'movie_id' && $column != 'episode_id') {
+            return 0;
+        }
+
+        $moved = 0;
+        $sql   = "SELECT id, media_app_user_id, platform, started, inprogress, finished
+                FROM " . $table . "
+                WHERE `" . $column . "` = " . $fromId;
+        $res   = $this->query($sql);
+        $links = [];
+        while ($row = $this->fetchAssoc($res)) {
+            $links[] = $row;
+        }
+        foreach ($links as $link) {
+            $sql = "SELECT id, media_app_user_id, platform, started, inprogress, finished
+                    FROM " . $table . "
+                    WHERE `" . $column . "` = " . $toId . "
+                    AND media_app_user_id = " . intval($link['media_app_user_id'] ?? 0) . "
+                    AND platform = " . intval($link['platform'] ?? 0) . "
+                    LIMIT 1";
+            $keeper = $this->fetchAssoc($this->query($sql)) ?: [];
+            if (!$keeper) {
+                $sql = "UPDATE " . $table . "
+                        SET `" . $column . "` = " . $toId . "
+                        WHERE id = " . intval($link['id']);
+                $this->query($sql);
+                $moved += $this->matchedRows();
+                continue;
+            }
+            if ($this->watchLinkIsFurther($link, $keeper)) {
+                $sql = "UPDATE " . $table . "
+                        SET started = " . intval($link['started'] ?? 0) . ",
+                            inprogress = " . intval($link['inprogress'] ?? 0) . ",
+                            finished = " . intval($link['finished'] ?? 0) . "
+                        WHERE id = " . intval($keeper['id']);
+                $this->query($sql);
+            }
+            $sql = "DELETE FROM " . $table . "
+                    WHERE id = " . intval($link['id']);
+            $this->query($sql);
+            $moved += $this->matchedRows();
+        }
+
+        return $moved;
+    }
+
+    public function setEpisodeSeriesId($episodeId, $seriesId)
+    {
+        $episodeId = intval($episodeId);
+        $seriesId  = intval($seriesId);
+        if (!$episodeId || !$seriesId) {
+            return 0;
+        }
+
+        $sql = "UPDATE " . EPISODE_TABLE . "
+                SET series_id = " . $seriesId . "
+                WHERE id = " . $episodeId;
+        $this->query($sql);
+
+        return $this->matchedRows();
+    }
+
     public function deleteMediaLibraryItemsUnderRoots($roots)
     {
         $clean = [];
