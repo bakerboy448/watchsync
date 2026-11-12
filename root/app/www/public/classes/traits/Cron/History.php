@@ -394,11 +394,20 @@ trait History
         $table       = $type == 'movie' ? MOVIE_TABLE : EPISODE_TABLE;
         $pathChanged = strcasecmp($fixedPath, $currentPath) != 0;
         if ($pathChanged) {
-            $this->database->forceLibraryItemPath($table, $itemId, $fixedPath, $pathType);
-            $item['path'] = $fixedPath;
-            logger($this->logfile, 'history path repair id=' . $itemId . ' type=' . $type
-                . ' from=' . $currentPath . ' to=' . $fixedPath);
-            loggerFlush($this->logfile);
+            $row  = $type == 'movie' ? $this->database->getMovie($itemId) : $this->database->getEpisode($itemId);
+            $seen = $this->librarySeenRemoteIds;
+            $this->librarySeenRemoteIds = [];
+            $moved = $row ? $this->moveLibraryItemOntoPath($table, $row, $fixedPath, 0, '', []) : 'failed';
+            $this->librarySeenRemoteIds = $seen;
+            if ($moved == 'updated') {
+                $item['path'] = $fixedPath;
+                logger($this->logfile, 'history path repair id=' . $itemId . ' type=' . $type
+                    . ' from=' . $currentPath . ' to=' . $fixedPath);
+                loggerFlush($this->logfile);
+            } else {
+                $pathChanged = false;
+                $fixedPath   = $currentPath;
+            }
         }
 
         $liveRemote = $this->historyFindListenerRemote($type, $item, $listenerApp, $fixedPath);

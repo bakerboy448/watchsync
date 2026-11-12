@@ -21,7 +21,10 @@ class Cron
     protected $database;
     protected $logfile            = '';
     public    $currentJob         = [];
-    protected $libraryImportIndex = null;
+    protected $libraryImportIndex    = null;
+    protected $libraryPathMoves      = [];
+    protected $librarySeenRemoteIds  = [];
+    protected $pendingLibraryUpdates = [];
 
     public function __construct()
     {
