@@ -391,6 +391,8 @@
     "syncHistoryNewUsersDescription": "Include newly added main source users in automatic history sync.",
     "syncHistoryNewLibraries": "Sync new library data",
     "syncHistoryNewLibrariesDescription": "After new library metadata is pulled, automatically sync watch history for it.",
+    "retention": "Retention",
+    "retentionDescription": "How many rows to keep in each history table. The housekeeper deletes rows past this number, starting with the oldest.",
     "logging": "Logging",
     "logLevel": "Log level",
     "logLevelInfo": "Info",

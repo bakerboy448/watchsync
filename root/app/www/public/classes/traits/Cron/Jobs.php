@@ -1327,25 +1327,20 @@ trait Jobs
         global $mediaApps;
 
         $log = $this->logfile ?: ($this->currentJob['log_file'] ?? CRON_SYNC_LOG);
-        if (!$this->automaticEnabled('history')) {
+        if ($this->isDryRun()) {
+            return false;
+        }
+        if (!$this->automaticEnabled('history') && !$this->database->settingEnabled('syncHistoryNewLibraries')) {
             logger($log, 'automated history sync disabled, skipping auto history sync');
             return false;
         }
-        if (!$this->database->settingEnabled('syncHistoryNewLibraries')) {
-            return false;
-        }
-        $libraries = array_values($this->currentJob['history_libraries'] ?? []);
-        $movies    = 0;
-        $series    = 0;
-        $episodes  = 0;
+        $movies   = 0;
+        $series   = 0;
+        $episodes = 0;
         foreach ($this->currentJob['stats']['apps'] ?? [] as $appStats) {
             $movies   += intval($appStats['media']['movies']['added'] ?? 0);
             $series   += intval($appStats['media']['series']['added'] ?? 0);
             $episodes += intval($appStats['media']['episodes']['added'] ?? 0);
-        }
-        if (!$libraries || ($movies + $series + $episodes) <= 0) {
-            logger($log, 'nothing new found, skipping auto history sync');
-            return false;
         }
 
         $master = $mediaApps->masterMediaApp();
@@ -1366,14 +1361,13 @@ trait Jobs
         }
 
         $job = $this->createJob(0, $userIds, intval($master['sync_mode'] ?: MediaSyncModes::BOTH), MediaSyncTypes::HISTORY, [], 0, MediaSyncTriggers::AUTOMATIC, 0, 0, [
-            'follow_up'         => 1,
-            'history_libraries' => $libraries,
+            'follow_up' => 1,
         ]);
         if (!$job) {
             return false;
         }
 
-        logger($log, 'new movies: ' . $movies . ', new series: ' . $series . ', new episodes: ' . $episodes . ' -> history sync queued');
+        logger($log, 'new movies: ' . $movies . ', new series: ' . $series . ', new episodes: ' . $episodes . ' -> history sync queued for existing watch state');
 
         return true;
     }

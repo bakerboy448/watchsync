@@ -412,7 +412,13 @@ trait LibraryBrowser
                     $link      = $this->getMediaAppUserLinkForApp(intval($user['id']), $app['id']);
                     $appUserId = intval($link['linked_media_app_user_id'] ?? 0);
                 }
-                $row[intval($app['id'])] = $appUserId && isset($cells[$appUserId]) ? $cells[$appUserId] : [];
+                if (!$appUserId) {
+                    $row[intval($app['id'])] = ['unlinked' => 1];
+                } else if (isset($cells[$appUserId])) {
+                    $row[intval($app['id'])] = $cells[$appUserId];
+                } else {
+                    $row[intval($app['id'])] = [];
+                }
             }
             $matrix[intval($user['id'])] = $row;
         }

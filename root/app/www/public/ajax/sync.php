@@ -83,6 +83,7 @@ switch ($_POST['event'] ?? $_GET['event'] ?? '') {
         }
         $syncUsers = [];
         $mediaApps->refreshParity();
+        $mediaApps->removeUsersForDeletedMasters();
         $mediaApps->linkUsers();
         $userLinks      = [];
         $linkedAppCount = [];
@@ -125,6 +126,13 @@ switch ($_POST['event'] ?? $_GET['event'] ?? '') {
             $isMaster  = intval($mediaApp['role']) == MediaAppRoles::MASTER;
             $online    = $mediaApps->isOnline($mediaApp);
             $users     = $isMaster || !$masterUsers ? $database->getMediaAppUsers($mediaApp['id']) : $database->getMediaAppUsers($mediaApp['id'], $masterUsers);
+            if (!$isMaster) {
+                foreach ($users as $index => $user) {
+                    if ($user && $mediaApps->userMatchesDeletedMaster($user)) {
+                        $users[$index] = [];
+                    }
+                }
+            }
             $libraries = $mediaApps->getLibraries($mediaApp, [], false);
             foreach ($users as &$user) {
                 $userId = intval($user['id'] ?? 0);

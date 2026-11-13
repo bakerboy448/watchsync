@@ -60,6 +60,8 @@ try {
                 'automaticParityInterval'  => strval($parityInterval),
                 'automaticLibraryInterval' => strval($libraryInterval),
                 'automaticHistoryInterval' => strval($historyInterval),
+                'syncHistoryRetention'     => strval(max(1, intval($_POST['syncHistoryRetention'] ?? 1000))),
+                'webhookHistoryRetention'  => strval(max(1, intval($_POST['webhookHistoryRetention'] ?? 1000))),
             ]);
             $result = [
                 'error'   => false,

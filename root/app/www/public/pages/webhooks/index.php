@@ -120,7 +120,10 @@ while ($row = $database->fetchAssoc($res)) {
                         $codeText = $code == 'queued' ? translate('queued') : $code;
                         ?>
                         <tr style="cursor: pointer;" onclick="viewWebhookLog('<?= htmlEscape($path) ?>');">
-                            <td style="width: 20%;"><?= htmlEscape($log['time'] ? date('Y-m-d g:i:s A', $log['time']) : '') ?></td>
+                            <td style="width: 20%;" data-order="<?= intval($log['time']) ?>"><?php if (!empty($log['time'])) { ?>
+                                    <?= htmlEscape(date('m/d/Y', intval($log['time']))) ?><br>
+                                    <?= htmlEscape(date('g:i A', intval($log['time']))) ?>
+                                <?php } ?></td>
                             <td style="width: 12%;"><?= $log['app'] != '' ? htmlEscape(translate($log['app'])) : '' ?></td>
                             <td><?= htmlEscape($type) ?></td>
                             <td style="width: 20%;"><?= htmlEscape($username) ?></td>
