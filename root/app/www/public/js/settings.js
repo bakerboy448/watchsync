@@ -53,6 +53,8 @@ function saveSyncSettings()
     payload += '&automaticParityInterval=' + syncIntervalSeconds('#automaticParityHours', '#automaticParityMinutes');
     payload += '&automaticLibraryInterval=' + syncIntervalSeconds('#automaticLibraryHours', '#automaticLibraryMinutes');
     payload += '&automaticHistoryInterval=' + syncIntervalSeconds('#automaticHistoryHours', '#automaticHistoryMinutes');
+    payload += '&syncHistoryRetention=' + encodeURIComponent($('#syncHistoryRetention').val() || '1000');
+    payload += '&webhookHistoryRetention=' + encodeURIComponent($('#webhookHistoryRetention').val() || '1000');
 
     pageLoadingStart();
     $.ajax({

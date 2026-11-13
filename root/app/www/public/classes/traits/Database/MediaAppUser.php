@@ -31,13 +31,25 @@ trait MediaAppUser
             return $users;
         }
 
-        $byId   = [];
-        $byName = [];
+        $byId        = [];
+        $byName      = [];
+        $byMatchName = [];
         foreach ($users as $user) {
             $byId[intval($user['id'])] = $user;
             $name                      = strtolower(trim($user['username'] ?? ''));
             if ($name != '') {
                 $byName[$name] = $user;
+            }
+            $matchName = $this->mediaAppUserMatchName($user['username'] ?? '');
+            if ($matchName == '') {
+                continue;
+            }
+            if (!empty($byMatchName[$matchName]) && intval($byMatchName[$matchName]['id']) != intval($user['id'])) {
+                $byMatchName[$matchName] = ['id' => 0];
+                continue;
+            }
+            if (empty($byMatchName[$matchName])) {
+                $byMatchName[$matchName] = $user;
             }
         }
 
@@ -63,6 +75,12 @@ trait MediaAppUser
                 }
             }
             if (!$picked) {
+                $matchName = $this->mediaAppUserMatchName($match['username'] ?? '');
+                if ($matchName != '' && !empty($byMatchName[$matchName]['id'])) {
+                    $picked = $byMatchName[$matchName];
+                }
+            }
+            if (!$picked) {
                 $aligned[] = [];
                 continue;
             }
@@ -73,6 +91,12 @@ trait MediaAppUser
             }
             $seen[$id] = true;
             $aligned[] = $picked;
+        }
+        foreach ($users as $user) {
+            $id = intval($user['id'] ?? 0);
+            if ($id && empty($seen[$id])) {
+                $aligned[] = $user;
+            }
         }
 
         return $aligned;
@@ -110,6 +134,14 @@ trait MediaAppUser
         });
 
         return $users;
+    }
+
+    public function mediaAppUserMatchName($username)
+    {
+        $name = strtolower(trim(strval($username)));
+        $name = preg_replace('/[^a-z0-9]+/', '', $name);
+
+        return strval($name);
     }
 
     public function updateMediaAppUserRemoteId($id, $remoteId)
@@ -218,9 +250,9 @@ trait MediaAppUser
 
     public function replaceMediaAppUsers($mediaAppId, $users)
     {
-        $existingByRemote = [];
-        $existingByName   = [];
-        $existingIds      = [];
+        $existingByRemote    = [];
+        $existingByName      = [];
+        $existingByMatchName = [];
         $sql              = "SELECT id, remote_id, username, email, user_type, is_admin, token, token_age, pin, pin_required
                              FROM " . MEDIA_APP_USER_TABLE . "
                              WHERE media_app_id = " . intval($mediaAppId);
@@ -229,7 +261,6 @@ trait MediaAppUser
             return;
         }
         while ($row = $this->fetchAssoc($res)) {
-            $existingIds[intval($row['id'])] = intval($row['id']);
             if (($row['remote_id'] ?? '') != '') {
                 $existingByRemote[$row['remote_id']] = $row;
             }
@@ -237,16 +268,25 @@ trait MediaAppUser
             if ($name != '' && (empty($existingByName[$name]) || intval($row['id']) < intval($existingByName[$name]['id']))) {
                 $existingByName[$name] = $row;
             }
+            $matchName = $this->mediaAppUserMatchName($row['username'] ?? '');
+            if ($matchName == '') {
+                continue;
+            }
+            if (!empty($existingByMatchName[$matchName]) && intval($existingByMatchName[$matchName]['id']) != intval($row['id'])) {
+                $existingByMatchName[$matchName] = ['id' => 0];
+                continue;
+            }
+            if (empty($existingByMatchName[$matchName])) {
+                $existingByMatchName[$matchName] = $row;
+            }
         }
 
         if (!$users) {
             return;
         }
 
-        $keep        = [];
-        $keepName    = [];
-        $writeFailed = false;
-        $users       = $this->sortMediaAppUsers($users);
+        $keepName = [];
+        $users    = $this->sortMediaAppUsers($users);
         foreach ($users as $user) {
             $remoteId = trim(strval($user['remote_id'] ?? ''));
             $username = trim($user['username'] ?? '');
@@ -273,10 +313,27 @@ trait MediaAppUser
             if (!$found) {
                 $name = strtolower($username);
                 if ($name != '' && !empty($existingByName[$name])) {
-                    $candidate = $existingByName[$name];
-                    $candidateRemote = trim(strval($candidate['remote_id'] ?? ''));
-                    if ($candidateRemote == '' || $candidateRemote == $remoteId) {
-                        $found = $candidate;
+                    $found = $existingByName[$name];
+                }
+            }
+            if (!$found) {
+                foreach ($user['match_names'] ?? [] as $matchName) {
+                    $matchName = strtolower(trim(strval($matchName)));
+                    if ($matchName != '' && !empty($existingByName[$matchName])) {
+                        $found = $existingByName[$matchName];
+                        break;
+                    }
+                }
+            }
+            if (!$found) {
+                $matchNames = [$this->mediaAppUserMatchName($username)];
+                foreach ($user['match_names'] ?? [] as $matchName) {
+                    $matchNames[] = $this->mediaAppUserMatchName($matchName);
+                }
+                foreach ($matchNames as $matchName) {
+                    if ($matchName != '' && !empty($existingByMatchName[$matchName]['id'])) {
+                        $found = $existingByMatchName[$matchName];
+                        break;
                     }
                 }
             }
@@ -329,15 +386,15 @@ trait MediaAppUser
                             WHERE id = " . intval($found['id']);
                 $this->query($sql);
                 if ($this->error()) {
-                    $writeFailed = true;
                     continue;
                 }
-                $keep[]                          = intval($found['id']);
                 $keepName[strtolower($username)] = true;
                 unset($existingByRemote[$found['remote_id'] ?? '']);
                 unset($existingByRemote[$remoteId]);
                 unset($existingByName[strtolower(trim($found['username'] ?? ''))]);
                 unset($existingByName[strtolower($username)]);
+                unset($existingByMatchName[$this->mediaAppUserMatchName($found['username'] ?? '')]);
+                unset($existingByMatchName[$this->mediaAppUserMatchName($username)]);
             } else {
                 $sql = "INSERT INTO " . MEDIA_APP_USER_TABLE . "
                             (`media_app_id`, `remote_id`, `username`, `email`, `user_type`, `is_admin`, `last_seen`, `token`, `token_age`, `pin`, `pin_required`)
@@ -345,29 +402,12 @@ trait MediaAppUser
                             (" . intval($mediaAppId) . ", '" . $this->prepare($remoteId) . "', '" . $this->prepare($username) . "', '" . $this->prepare($user['email'] ?? '') . "', '" . $this->prepare($user['user_type'] ?? '') . "', " . intval($user['is_admin']) . ", " . intval($user['last_seen'] ?? 0) . ", '" . $this->prepare($token) . "', " . intval($tokenAge) . ", '" . $this->prepare($pin) . "', " . intval($pinRequired) . ")";
                 $this->query($sql);
                 if ($this->error()) {
-                    $writeFailed = true;
                     continue;
                 }
-                $keep[]                          = $this->insertId();
                 $keepName[strtolower($username)] = true;
             }
         }
 
-        if ($writeFailed) {
-            $this->usersCache = [];
-            return;
-        }
-
-        $remove = [];
-        foreach ($existingIds as $existingId) {
-            if (!in_array($existingId, $keep)) {
-                $remove[] = $existingId;
-            }
-        }
-
-        if ($remove) {
-            $this->deleteMediaAppUsersByIds($remove);
-        }
         $this->usersCache = [];
     }
 

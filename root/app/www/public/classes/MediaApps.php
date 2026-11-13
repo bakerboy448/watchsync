@@ -107,6 +107,7 @@ class MediaApps
         $removedIds   = [];
         $removedByApp = [];
         $usersByApp   = [];
+        $beforeByApp  = [];
         $checked      = false;
         foreach ($this->database->getMediaApps() as $mediaApp) {
             if (!$mediaApp['active'] || !$this->isOnline($mediaApp)) {
@@ -126,25 +127,65 @@ class MediaApps
             }
             $checked = true;
 
-            $kept    = [];
-            $keptIds = [];
-            foreach ($result['users'] ?? [] as $user) {
-                if ($this->userIsDeleted($user)) {
+            $appId                  = intval($mediaApp['id']);
+            $beforeByApp[$appId]    = $before;
+            $usersByApp[$appId]     = [
+                'role'  => intval($mediaApp['role']),
+                'users' => $result['users'] ?? [],
+            ];
+        }
+        if (!$checked) {
+            return ['checked' => false, 'removed' => [], 'users' => [], 'removedByApp' => []];
+        }
+
+        $masterIds   = [];
+        $returnedIds = [];
+        foreach ($usersByApp as $info) {
+            $isMaster = intval($info['role']) == MediaAppRoles::MASTER;
+            foreach ($info['users'] as $user) {
+                if ($isMaster && $this->userIsDeleted($user)) {
                     continue;
                 }
                 $id = intval($user['id'] ?? 0);
                 if (!$id) {
                     continue;
                 }
-                $keptIds[$id] = true;
-                $kept[]       = $user;
+                $returnedIds[$id] = true;
+                if ($isMaster) {
+                    $masterIds[$id] = true;
+                }
             }
+        }
 
+        $linkedMasters = [];
+        foreach ($this->database->getMediaAppUserLinks() as $link) {
+            $linkedMasters[intval($link['linked_media_app_user_id'])] = intval($link['media_app_user_id']);
+        }
+
+        foreach ($usersByApp as $appId => $info) {
+            $isMaster   = intval($info['role']) == MediaAppRoles::MASTER;
+            $kept       = [];
             $appIds     = [];
             $appRemoved = [];
-            foreach ($before as $id => $user) {
-                if (!empty($keptIds[$id])) {
+            foreach ($info['users'] as $user) {
+                if ($isMaster && $this->userIsDeleted($user)) {
                     continue;
+                }
+                $id = intval($user['id'] ?? 0);
+                if ($id) {
+                    $kept[] = $user;
+                }
+            }
+            foreach ($beforeByApp[$appId] as $id => $user) {
+                if (!empty($returnedIds[$id]) && !($isMaster && $this->userIsDeleted($user))) {
+                    continue;
+                }
+                if (!$isMaster) {
+                    $masterUserId = intval($linkedMasters[$id] ?? 0);
+                    if ($masterUserId && !empty($masterIds[$masterUserId])) {
+                        $kept[] = $user;
+                        continue;
+                    }
                 }
                 $appIds[]     = $id;
                 $removedIds[] = $id;
@@ -157,13 +198,8 @@ class MediaApps
             if ($appIds) {
                 $this->database->deleteMediaAppUsersByIds($appIds);
             }
-
-            $appId                = intval($mediaApp['id']);
             $usersByApp[$appId]   = $kept;
             $removedByApp[$appId] = $appRemoved;
-        }
-        if (!$checked) {
-            return ['checked' => false, 'removed' => [], 'users' => [], 'removedByApp' => []];
         }
         if ($removedIds) {
             foreach (['parityUserSync'] as $setting) {
@@ -184,12 +220,164 @@ class MediaApps
             loggerFlush(CRON_HOUSEKEEPER_LOG);
         }
 
+        $deletedMaster = $this->removeUsersForDeletedMasters();
+        foreach ($deletedMaster as $appId => $names) {
+            if (!$names) {
+                continue;
+            }
+            $removedByApp[$appId] = array_merge($removedByApp[$appId] ?? [], $names);
+            foreach ($names as $name) {
+                $removed[] = $name;
+            }
+            if (empty($usersByApp[$appId]) || !is_array($usersByApp[$appId])) {
+                continue;
+            }
+            $kept = [];
+            foreach ($usersByApp[$appId] as $user) {
+                if ($this->userMatchesDeletedMaster($user)) {
+                    continue;
+                }
+                $kept[] = $user;
+            }
+            $usersByApp[$appId] = $kept;
+        }
+
         return [
             'checked'      => true,
             'removed'      => $removed,
             'users'        => $usersByApp,
             'removedByApp' => $removedByApp,
         ];
+    }
+
+    public function deletedMasterIdents()
+    {
+        $master = $this->masterMediaApp();
+        if (!$master) {
+            return [];
+        }
+
+        return $this->deletedUserIdents($master['id']);
+    }
+
+    public function userMatchesDeletedMaster($user)
+    {
+        if (!$user) {
+            return false;
+        }
+
+        $deleted = $this->deletedMasterIdents();
+        if (!$deleted) {
+            return false;
+        }
+
+        $deletedMatchNames = [];
+        foreach (array_keys($deleted) as $ident) {
+            $matchName = $this->database->mediaAppUserMatchName($ident);
+            if ($matchName != '') {
+                $deletedMatchNames[$matchName] = true;
+            }
+        }
+        foreach ([strval($user['username'] ?? ''), strval($user['email'] ?? '')] as $ident) {
+            $ident = strtolower(trim($ident));
+            if ($ident != '' && $ident != '0' && !empty($deleted[$ident])) {
+                return true;
+            }
+            $matchName = $this->database->mediaAppUserMatchName($ident);
+            if ($matchName != '' && !empty($deletedMatchNames[$matchName])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function deleteRemoteUser($mediaApp, $user)
+    {
+        $remoteId = trim(strval($user['remote_id'] ?? ''));
+        if ($remoteId == '' || $remoteId == '0' || !$this->isOnline($mediaApp)) {
+            return ['error' => false];
+        }
+
+        switch (intval($mediaApp['platform'] ?? 0)) {
+            case MediaPlatforms::EMBY:
+                $result = $this->embyDeleteUser($mediaApp['url'] ?? '', $mediaApp['apikey'] ?? '', $remoteId);
+                $this->embyApiForget();
+                return $result;
+            case MediaPlatforms::JELLYFIN:
+                $result = $this->jellyfinDeleteUser($mediaApp['url'] ?? '', $mediaApp['apikey'] ?? '', $remoteId);
+                $this->jellyfinApiForget();
+                return $result;
+            default:
+                return ['error' => false];
+        }
+    }
+
+    public function removeUsersForDeletedMasters()
+    {
+        $removed = [];
+        foreach ($this->database->getMediaApps() as $mediaApp) {
+            if (!$mediaApp['active'] || intval($mediaApp['role']) == MediaAppRoles::MASTER) {
+                continue;
+            }
+
+            $ids   = [];
+            $names = [];
+            foreach ($this->database->getMediaAppUsers($mediaApp['id']) as $user) {
+                if (!$this->userMatchesDeletedMaster($user)) {
+                    continue;
+                }
+                $link = $this->database->getMediaAppUserLink(intval($user['id'] ?? 0));
+                if ($link) {
+                    $masterUser = $this->database->getMediaAppUser(intval($link['media_app_user_id'] ?? 0));
+                    if ($masterUser && !$this->userIsDeleted($masterUser)) {
+                        continue;
+                    }
+                }
+                $this->deleteRemoteUser($mediaApp, $user);
+                $id = intval($user['id'] ?? 0);
+                if ($id) {
+                    $ids[] = $id;
+                }
+                $name = strval($user['username'] ?? '');
+                if ($name != '') {
+                    $names[] = $name;
+                }
+            }
+            if ($ids) {
+                $this->database->deleteMediaAppUsersByIds($ids);
+            }
+            if ($names) {
+                $removed[intval($mediaApp['id'])] = $names;
+            }
+        }
+
+        $master = $this->masterMediaApp();
+        if ($master) {
+            $ids   = [];
+            $names = [];
+            foreach ($this->database->getMediaAppUsers($master['id']) as $user) {
+                if (!$this->userIsDeleted($user)) {
+                    continue;
+                }
+                $id = intval($user['id'] ?? 0);
+                if ($id) {
+                    $ids[] = $id;
+                }
+                $name = strval($user['username'] ?? '');
+                if ($name != '') {
+                    $names[] = $name;
+                }
+            }
+            if ($ids) {
+                $this->database->deleteMediaAppUsersByIds($ids);
+            }
+            if ($names) {
+                $removed[intval($master['id'])] = $names;
+            }
+        }
+
+        return $removed;
     }
 
     public function getPlatformName($platform)
@@ -1850,9 +2038,19 @@ class MediaApps
             return;
         }
 
-        $masters = [];
+        $masters            = [];
+        $mastersByMatchName = [];
         foreach ($this->database->getMediaAppUsers($master['id']) as $user) {
             $masters[strtolower(trim($user['username']))] = $user;
+            $matchName = $this->database->mediaAppUserMatchName($user['username']);
+            if ($matchName == '') {
+                continue;
+            }
+            if (!empty($mastersByMatchName[$matchName]) && intval($mastersByMatchName[$matchName]['id']) != intval($user['id'])) {
+                $mastersByMatchName[$matchName] = ['id' => 0];
+                continue;
+            }
+            $mastersByMatchName[$matchName] = $user;
         }
 
         $linked = [];
@@ -1862,11 +2060,21 @@ class MediaApps
 
         foreach ($listeners as $listener) {
             foreach ($this->database->getMediaAppUsers($listener['id']) as $user) {
-                $username = strtolower(trim($user['username']));
-                if (empty($masters[$username]) || !empty($linked[intval($user['id'])])) {
+                if (!empty($linked[intval($user['id'])])) {
                     continue;
                 }
-                $this->database->addMediaAppUserLink($masters[$username]['id'], $user['id']);
+                $username   = strtolower(trim($user['username']));
+                $masterUser = $masters[$username] ?? [];
+                if (!$masterUser) {
+                    $matchName = $this->database->mediaAppUserMatchName($user['username']);
+                    if ($matchName != '' && !empty($mastersByMatchName[$matchName]['id'])) {
+                        $masterUser = $mastersByMatchName[$matchName];
+                    }
+                }
+                if (!$masterUser) {
+                    continue;
+                }
+                $this->database->addMediaAppUserLink($masterUser['id'], $user['id']);
                 $linked[intval($user['id'])] = true;
             }
         }
