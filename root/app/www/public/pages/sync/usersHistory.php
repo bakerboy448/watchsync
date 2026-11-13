@@ -83,11 +83,15 @@ $syncDisabledTitle = !$hasLibrary ? translate('historyNeedsLibraryData') : trans
                             $link        = $database->getMediaAppUserLinkForApp($userId, $appId);
                             $watchUserId = intval($link['linked_media_app_user_id'] ?? 0);
                         }
-                        $available = $watchUserId && $online;
+                        $linked    = $watchUserId > 0;
+                        $available = $linked && $online;
+                        $watchText = $linked
+                            ? translate('userWatchCount', [intval($watch['movies'] ?? 0), intval($watch['episodes'] ?? 0)])
+                            : translate('unlinked');
                         ?>
                         <div class="form-check">
-                            <input class="form-check-input sync-history-app" type="checkbox" id="syncHistoryApp-<?= $userId ?>-<?= $appId ?>" data-user="<?= $userId ?>" data-app="<?= $appId ?>" data-available="<?= $available ? '1' : '0' ?>" <?= $available ? ' checked' : ' disabled' ?>>
-                            <label class="form-check-label text-body-secondary small" for="syncHistoryApp-<?= $userId ?>-<?= $appId ?>"><?= htmlEscape(translate('userWatchCount', [intval($watch['movies'] ?? 0), intval($watch['episodes'] ?? 0)])) ?></label>
+                            <input class="form-check-input sync-history-app" type="checkbox" id="syncHistoryApp-<?= $userId ?>-<?= $appId ?>" data-user="<?= $userId ?>" data-app="<?= $appId ?>" data-available="<?= $available ? '1' : '0' ?>" title="<?= htmlEscape($linked ? '' : translate('unlinked')) ?>" <?= $available ? ' checked' : ' disabled' ?>>
+                            <label class="form-check-label text-body-secondary small" for="syncHistoryApp-<?= $userId ?>-<?= $appId ?>"><?= htmlEscape($watchText) ?></label>
                         </div>
                     <?php } ?>
                 </div>

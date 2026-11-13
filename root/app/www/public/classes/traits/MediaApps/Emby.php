@@ -549,13 +549,29 @@ trait Emby
 
         $users = [];
         foreach ($response as $user) {
+            if (!is_array($user)) {
+                continue;
+            }
+            $names = [];
+            foreach (['Name', 'ConnectUserName'] as $field) {
+                $name = trim(strval($user[$field] ?? ''));
+                if ($name == '' || $name == '0' || in_array($name, $names)) {
+                    continue;
+                }
+                $names[] = $name;
+            }
+            $username = $names[0] ?? '';
+            if ($username == '') {
+                continue;
+            }
             $users[] = [
-                'remote_id' => $user['Id'] ?? '',
-                'username'  => $user['Name'] ?? ($user['Id'] ?? ''),
-                'email'     => '',
-                'user_type' => '',
-                'is_admin'  => !empty($user['Policy']['IsAdministrator']) ? 1 : 0,
-                'last_seen' => $this->embyTimestamp($user['LastActivityDate'] ?? ''),
+                'remote_id'   => $user['Id'] ?? '',
+                'username'    => $username,
+                'email'       => '',
+                'user_type'   => '',
+                'is_admin'    => !empty($user['Policy']['IsAdministrator']) ? 1 : 0,
+                'last_seen'   => $this->embyTimestamp($user['LastActivityDate'] ?? ''),
+                'match_names' => $names,
             ];
         }
 
@@ -957,9 +973,8 @@ trait Emby
 
     public function embyPolicyLibraryAccess($policy)
     {
-        $admin = !empty($policy['IsAdministrator']) || !empty($policy['isAdministrator']);
-        $all   = $policy['EnableAllFolders'] ?? ($policy['enableAllFolders'] ?? null);
-        if ($admin || $all == true || $all == 1 || $all == '1') {
+        $all = $policy['EnableAllFolders'] ?? ($policy['enableAllFolders'] ?? null);
+        if ($all == true || $all == 1 || $all == '1') {
             return ['all' => true, 'keys' => []];
         }
 

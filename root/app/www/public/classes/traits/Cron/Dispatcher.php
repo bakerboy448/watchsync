@@ -225,6 +225,7 @@ trait Dispatcher
                 logger(CRON_HOUSEKEEPER_LOG, 'backups removed=' . $removed);
             }
             $this->purgeOldLogs();
+            $this->pruneHistoryRetention();
             $this->purgeDeletedUsers();
         } finally {
             $this->removeLockFile($lock);
@@ -283,6 +284,113 @@ trait Dispatcher
             }
             closedir($folder);
         }
+    }
+
+    public function historyRetentionLimit($name)
+    {
+        $limit = intval($this->database->getSetting($name));
+        if ($limit < 1) {
+            $limit = 1000;
+        }
+
+        return $limit;
+    }
+
+    public function pruneHistoryRetention()
+    {
+        $syncRemoved = $this->pruneSyncHistory($this->historyRetentionLimit('syncHistoryRetention'));
+        if ($syncRemoved) {
+            logger(CRON_HOUSEKEEPER_LOG, 'sync history removed=' . $syncRemoved);
+            loggerFlush(CRON_HOUSEKEEPER_LOG);
+        }
+
+        $webhookRemoved = $this->pruneWebhookHistory($this->historyRetentionLimit('webhookHistoryRetention'));
+        if ($webhookRemoved) {
+            logger(CRON_HOUSEKEEPER_LOG, 'webhook history removed=' . $webhookRemoved);
+            loggerFlush(CRON_HOUSEKEEPER_LOG);
+        }
+    }
+
+    public function pruneSyncHistory($keep)
+    {
+        $rows = $this->database->getSyncHistoryJobs();
+        $extra = count($rows) - intval($keep);
+        if ($extra < 1) {
+            return 0;
+        }
+
+        usort($rows, function ($a, $b) {
+            $aTime = intval($a['queued'] ?? 0);
+            $bTime = intval($b['queued'] ?? 0);
+            if ($aTime == $bTime) {
+                return intval($a['id'] ?? 0) - intval($b['id'] ?? 0);
+            }
+
+            return $aTime - $bTime;
+        });
+
+        $removed = 0;
+        foreach ($rows as $row) {
+            if ($removed >= $extra) {
+                break;
+            }
+            $status = strval($row['status'] ?? '');
+            if ($status == 'running' || $status == 'queued') {
+                continue;
+            }
+
+            $jobId = strval($row['job_id'] ?? '');
+            $log   = strval($row['log_file'] ?? '');
+            if ($log != '' && is_file($log)) {
+                unlink($log);
+            }
+            if ($jobId != '') {
+                $defaultLog = CRON_LOGS_PATH . $jobId . '.log';
+                if (($log == '' || $log != $defaultLog) && is_file($defaultLog)) {
+                    unlink($defaultLog);
+                }
+                $this->database->deleteSyncHistory($jobId);
+            }
+            $removed++;
+        }
+
+        return $removed;
+    }
+
+    public function pruneWebhookHistory($keep)
+    {
+        if (!function_exists('webhookLogRows')) {
+            return 0;
+        }
+
+        $rows  = webhookLogRows();
+        $extra = count($rows) - intval($keep);
+        if ($extra < 1) {
+            return 0;
+        }
+
+        $removed = 0;
+        foreach (array_reverse($rows) as $row) {
+            if ($removed >= $extra) {
+                break;
+            }
+            if (strval($row['code'] ?? '') == 'queued') {
+                continue;
+            }
+
+            $file = strval($row['file'] ?? '');
+            if ($file == '' || str_contains($file, '/') || str_contains($file, '\\') || !str_ends_with($file, '.log')) {
+                continue;
+            }
+            $path = WEBHOOK_LOGS_PATH . $file;
+            if (!is_file($path)) {
+                continue;
+            }
+            unlink($path);
+            $removed++;
+        }
+
+        return $removed;
     }
 
     public function purgeDeletedUsers()

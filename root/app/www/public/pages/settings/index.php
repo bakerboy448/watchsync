@@ -27,6 +27,14 @@ $parityHours                         = $parityMinutes = $libraryHours = $library
 list($parityHours, $parityMinutes)   = $cron->automaticIntervalParts($cron->automaticInterval('parity'));
 list($libraryHours, $libraryMinutes) = $cron->automaticIntervalParts($cron->automaticInterval('library'));
 list($historyHours, $historyMinutes) = $cron->automaticIntervalParts($cron->automaticInterval('history'));
+$syncHistoryRetention                = intval($database->getSetting('syncHistoryRetention'));
+$webhookHistoryRetention             = intval($database->getSetting('webhookHistoryRetention'));
+if ($syncHistoryRetention < 1) {
+    $syncHistoryRetention = 1000;
+}
+if ($webhookHistoryRetention < 1) {
+    $webhookHistoryRetention = 1000;
+}
 $syncSettings                        = [
     'syncParityAutoUsers'     => $database->settingEnabled('syncParityAutoUsers'),
     'syncParityAutoLibraries' => $database->settingEnabled('syncParityAutoLibraries'),
@@ -40,8 +48,10 @@ $syncSettings                        = [
     'parityMinutes'           => $parityMinutes,
     'libraryHours'            => $libraryHours,
     'libraryMinutes'          => $libraryMinutes,
-    'historyHours'            => $historyHours,
-    'historyMinutes'          => $historyMinutes,
+    'historyHours'             => $historyHours,
+    'historyMinutes'           => $historyMinutes,
+    'syncHistoryRetention'     => $syncHistoryRetention,
+    'webhookHistoryRetention'  => $webhookHistoryRetention,
 ];
 
 $intervalHourOptions   = range(0, 24);
@@ -229,6 +239,18 @@ $browseSummary         = $database->browseTablesSummary();
                             <input class="form-check-input" type="checkbox" role="switch" id="syncHistoryNewLibraries" <?= !empty($syncSettings['syncHistoryNewLibraries']) ? ' checked' : '' ?>>
                             <label class="form-check-label" for="syncHistoryNewLibraries"><?= htmlEscape(translate('syncHistoryNewLibraries')) ?></label>
                             <div class="form-text"><?= htmlEscape(translate('syncHistoryNewLibrariesDescription')) ?></div>
+                        </div>
+                        <h2 class="h5"><?= htmlEscape(translate('retention')) ?></h2>
+                        <p class="text-body-secondary"><?= htmlEscape(translate('retentionDescription')) ?></p>
+                        <div class="row g-2 align-items-end mb-4">
+                            <div class="col-auto">
+                                <label for="syncHistoryRetention" class="form-label mb-1"><?= htmlEscape(translate('syncHistory')) ?></label>
+                                <input type="number" class="form-control" id="syncHistoryRetention" min="1" style="width: 8rem;" value="<?= intval($syncSettings['syncHistoryRetention']) ?>">
+                            </div>
+                            <div class="col-auto">
+                                <label for="webhookHistoryRetention" class="form-label mb-1"><?= htmlEscape(translate('webhooks')) ?></label>
+                                <input type="number" class="form-control" id="webhookHistoryRetention" min="1" style="width: 8rem;" value="<?= intval($syncSettings['webhookHistoryRetention']) ?>">
+                            </div>
                         </div>
                         <button type="button" class="btn btn-primary" onclick="saveSyncSettings();"><?= htmlEscape(translate('saveSettings')) ?></button>
                     </div>

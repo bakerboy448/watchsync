@@ -36,7 +36,9 @@ $colspan   = 1 + count($apps);
                     <?php foreach ($apps as $app) {
                         $cell = $matrix[intval($user['id'])][intval($app['id'])] ?? [];
                         $html = '';
-                        if (!empty($cell['finished'])) {
+                        if (!empty($cell['unlinked'])) {
+                            $html = '<span class="text-body-secondary small">' . htmlEscape(translate('unlinked')) . '</span>';
+                        } else if (!empty($cell['finished'])) {
                             $html = '<i class="fa-solid fa-check library-watch-check"></i>';
                         } else if (!empty($cell['inprogress'])) {
                             $label = formatWatchDuration($cell['inprogress']);

@@ -170,8 +170,12 @@ trait Accounts
         }
         $keep = [];
         foreach ($selected as $user) {
+            if ($mediaApps->userIsDeleted($user) || $mediaApps->userMatchesDeletedMaster($user)) {
+                continue;
+            }
             $keep[strtolower(trim($user['username']))] = $user;
         }
+        $mediaApps->removeUsersForDeletedMasters();
 
         $masterRemoved = $removedByApp[$masterId] ?? [];
         foreach ($masterRemoved as $name) {
@@ -197,9 +201,21 @@ trait Accounts
             } else {
                 $listenerUsers = $this->database->getMediaAppUsers($listenerId);
             }
-            $existing = [];
+            $existing            = [];
+            $existingByMatchName = [];
             foreach ($listenerUsers as $user) {
                 $existing[strtolower(trim($user['username']))] = $user;
+                $matchName = $this->database->mediaAppUserMatchName($user['username'] ?? '');
+                if ($matchName == '') {
+                    continue;
+                }
+                if (!empty($existingByMatchName[$matchName]) && intval($existingByMatchName[$matchName]['id']) != intval($user['id'])) {
+                    $existingByMatchName[$matchName] = ['id' => 0];
+                    continue;
+                }
+                if (empty($existingByMatchName[$matchName])) {
+                    $existingByMatchName[$matchName] = $user;
+                }
             }
 
             $created       = 0;
@@ -216,6 +232,10 @@ trait Accounts
 
             foreach ($keep as $username => $masterUser) {
                 $this->stopIfCancelled();
+                if ($mediaApps->userIsDeleted($masterUser) || $mediaApps->userMatchesDeletedMaster($masterUser)) {
+                    $skipped++;
+                    continue;
+                }
                 if (!empty($linkedBefore[$username])) {
                     $accessUsers[] = $masterUser;
                     $unchanged++;
@@ -234,6 +254,14 @@ trait Accounts
                 }
                 if (!empty($existing[$username])) {
                     $this->database->addMediaAppUserLink($masterUser['id'], $existing[$username]['id']);
+                    $accessUsers[] = $masterUser;
+                    $linked++;
+                    $linkedNames[] = $masterUser['username'];
+                    continue;
+                }
+                $matchName = $this->database->mediaAppUserMatchName($masterUser['username'] ?? '');
+                if ($matchName != '' && !empty($existingByMatchName[$matchName]['id'])) {
+                    $this->database->addMediaAppUserLink($masterUser['id'], $existingByMatchName[$matchName]['id']);
                     $accessUsers[] = $masterUser;
                     $linked++;
                     $linkedNames[] = $masterUser['username'];
