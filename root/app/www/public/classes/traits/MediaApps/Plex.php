@@ -330,6 +330,7 @@ trait Plex
             'poster'           => intval($type) == 4 ? '' : $this->plexValue($row, 'thumb'),
             'series_poster'    => $this->plexValue($row, 'grandparentThumb'),
             'duration'         => $this->plexRuntimeSeconds($row),
+            'provider_ids'     => $this->providerIdsFromPlexGuids($row['Guid'] ?? []),
         ];
 
         if (intval($type) == 2) {

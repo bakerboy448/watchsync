@@ -181,6 +181,7 @@ trait Emby
                     'library'          => $libraryTitle,
                     'updated_at'       => $this->embyDate($row['DateCreated'] ?? ''),
                     'duration'         => $this->embyRuntimeSeconds($row),
+                    'provider_ids'     => $this->normalizeProviderIds($row['ProviderIds'] ?? []),
                 ];
             }
             return $items;
@@ -239,6 +240,7 @@ trait Emby
                 'poster'           => $type == 'Episode' ? '' : $this->embyPosterTag($row),
                 'series_poster'    => strval($row['SeriesPrimaryImageTag'] ?? ''),
                 'duration'         => $this->embyRuntimeSeconds($row),
+                'provider_ids'     => $this->normalizeProviderIds($row['ProviderIds'] ?? []),
             ];
             if ($type == 'Movie') {
                 $items['movies'][] = $item;

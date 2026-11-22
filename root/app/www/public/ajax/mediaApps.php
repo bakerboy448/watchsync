@@ -54,6 +54,7 @@ switch ($_POST['event'] ?? '') {
                     <option value="<?= MediaPlatforms::PLEX ?>" <?= intval($platform) == MediaPlatforms::PLEX ? ' selected' : '' ?>><?= htmlEscape(translate('plex')) ?></option>
                     <option value="<?= MediaPlatforms::EMBY ?>" <?= intval($platform) == MediaPlatforms::EMBY ? ' selected' : '' ?>><?= htmlEscape(translate('emby')) ?></option>
                     <option value="<?= MediaPlatforms::JELLYFIN ?>" <?= intval($platform) == MediaPlatforms::JELLYFIN ? ' selected' : '' ?>><?= htmlEscape(translate('jellyfin')) ?></option>
+                    <option value="<?= MediaPlatforms::SILO ?>" <?= intval($platform) == MediaPlatforms::SILO ? ' selected' : '' ?>><?= htmlEscape(translate('silo')) ?></option>
                 </select>
             </div>
             <div class="mb-3">
@@ -144,7 +145,7 @@ switch ($_POST['event'] ?? '') {
             exit;
         }
         $mediaApp = $database->getMediaApp(intval($user['media_app_id'] ?? 0));
-        if (!$mediaApp || intval($mediaApp['platform']) != MediaPlatforms::PLEX) {
+        if (!$mediaApp || !in_array(intval($mediaApp['platform']), [MediaPlatforms::PLEX, MediaPlatforms::SILO])) {
             echo '<div class="alert alert-danger mb-0" role="alert">' . htmlEscape(translate('mediaAppNotFound')) . '</div>';
             exit;
         }
@@ -154,10 +155,12 @@ switch ($_POST['event'] ?? '') {
             <label for="mediaAppUserToken" class="form-label"><?= htmlEscape(translate('token')) ?></label>
             <input type="text" class="form-control" id="mediaAppUserToken" value="<?= htmlEscape($user['token'] ?? '') ?>" autocomplete="off">
         </div>
+        <?php if (intval($mediaApp['platform']) == MediaPlatforms::PLEX) { ?>
         <div class="mb-3">
             <label for="mediaAppUserPin" class="form-label"><?= htmlEscape(translate('pin')) ?></label>
             <input type="text" class="form-control" id="mediaAppUserPin" value="<?= htmlEscape($user['pin'] ?? '') ?>" autocomplete="off">
         </div>
+        <?php } ?>
         <div class="text-center">
             <button type="button" class="btn btn-secondary me-2" onclick="validateMediaAppUserToken(<?= intval($userId) ?>);"><?= htmlEscape(translate('validate')) ?></button>
             <button type="button" class="btn btn-primary" onclick="saveMediaAppUserToken(<?= intval($userId) ?>);"><?= htmlEscape(translate('save')) ?></button>
@@ -166,6 +169,12 @@ switch ($_POST['event'] ?? '') {
         exit;
 
     case 'validateUserToken':
+        $tokenUser = $database->getMediaAppUser(intval($_POST['id'] ?? 0));
+        $tokenApp  = $tokenUser ? $database->getMediaApp(intval($tokenUser['media_app_id'] ?? 0)) : [];
+        if ($tokenApp && intval($tokenApp['platform']) == MediaPlatforms::SILO) {
+            echo json_encode($mediaApps->validateSiloUserToken($tokenUser, $tokenApp, $_POST['token'] ?? ''));
+            exit;
+        }
         echo json_encode($mediaApps->validatePlexUserToken(intval($_POST['id'] ?? 0), $_POST['token'] ?? '', $_POST['pin'] ?? ''));
         exit;
 
@@ -177,7 +186,7 @@ switch ($_POST['event'] ?? '') {
             exit;
         }
         $mediaApp = $database->getMediaApp(intval($user['media_app_id'] ?? 0));
-        if (!$mediaApp || intval($mediaApp['platform']) != MediaPlatforms::PLEX) {
+        if (!$mediaApp || !in_array(intval($mediaApp['platform']), [MediaPlatforms::PLEX, MediaPlatforms::SILO])) {
             echo json_encode(['error' => true, 'message' => translate('mediaAppNotFound')]);
             exit;
         }
@@ -187,7 +196,7 @@ switch ($_POST['event'] ?? '') {
         if ($token != $current) {
             $database->updateMediaAppUserToken($userId, $token);
         }
-        if ($pin != '') {
+        if ($pin != '' && intval($mediaApp['platform']) == MediaPlatforms::PLEX) {
             $check = $mediaApps->plexCheckUserPin($mediaApp, $user, $pin);
             if (empty($check['ok'])) {
                 $updated = $database->getMediaAppUser($userId);
@@ -239,7 +248,7 @@ switch ($_POST['event'] ?? '') {
         }
         $showEmail = false;
         $showType  = false;
-        $showToken = intval($mediaApp['platform']) == MediaPlatforms::PLEX;
+        $showToken = in_array(intval($mediaApp['platform']), [MediaPlatforms::PLEX, MediaPlatforms::SILO]);
         foreach ($users as $userRow) {
             if (!empty($userRow['email'])) {
                 $showEmail = true;

@@ -143,6 +143,7 @@ trait Jellyfin
                     'library'          => $libraryTitle,
                     'updated_at'       => $this->jellyfinDate($row['DateCreated'] ?? ''),
                     'duration'         => $this->jellyfinRuntimeSeconds($row),
+                    'provider_ids'     => $this->normalizeProviderIds($row['ProviderIds'] ?? []),
                 ];
             }
             return $items;
@@ -201,6 +202,7 @@ trait Jellyfin
                 'poster'           => $type == 'Episode' ? '' : $this->jellyfinPosterTag($row),
                 'series_poster'    => strval($row['SeriesPrimaryImageTag'] ?? ''),
                 'duration'         => $this->jellyfinRuntimeSeconds($row),
+                'provider_ids'     => $this->normalizeProviderIds($row['ProviderIds'] ?? []),
             ];
             if ($type == 'Movie') {
                 $items['movies'][] = $item;
