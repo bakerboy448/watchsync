@@ -13,6 +13,7 @@ class Cron
 {
     use Jobs;
     use Library;
+    use SiloLibrary;
     use Accounts;
     use History;
     use Notify;
