@@ -76,6 +76,16 @@ Sync -> History
 
 Currently the paths from main are used to match with paths on the listeners. As long as all the apps have the same path access then it will have no problem matching data, creating libraries, etc
 
+## Silo (listener only)
+
+Silo can only be a listener. It does not report file paths, so its items are matched to the main app's items by imdb, tmdb, and tvdb ids, and episodes by their series ids plus season and episode number. Run a full library sync on the main app first so those ids are stored, then run the Silo library sync.
+
+- The Silo API key must belong to an admin account so Watchsync can list users, libraries and the catalog
+- A Silo API key only acts as its own account, so each synced Silo user needs their own key. On the Media Apps page open the Silo users list and click the token icon next to each user to add it
+- Users link to the main app by username, then by email
+- Watchsync marks items watched and unwatched on Silo. In progress positions are not written, and Silo records the time of the mark, not the original watch time
+- Watchsync does not create, delete, or edit Silo libraries or users
+
 ## Conflict resolution
 
 The system looks at all media apps, finds which one has the newest timestamp & that is what is used. If one app has it marked as finished then all apps get set to finished, otherwise it takes the highest progress time and uses that.
