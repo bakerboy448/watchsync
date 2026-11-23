@@ -29,6 +29,8 @@ trait Library
                 $flags['jellyfin']           = 1;
                 $flags['jellyfin_remote_id'] = $remoteId;
                 break;
+            case MediaPlatforms::SILO:
+                break;
             default:
                 $flags['plex']           = 1;
                 $flags['plex_remote_id'] = $remoteId;
@@ -1038,6 +1040,9 @@ trait Library
         $this->warmLibraryImportIndex($platform);
         $bucket   = $this->libraryImportBucket($table);
         $remoteId = trim(strval($remoteId));
+        if ($this->libraryImportSharedRemoteIds($platform) && $this->database->normalizeLibraryPath($path) != '') {
+            return $this->findLibraryImportPathHit($table, $platform, $path);
+        }
         if ($remoteId != '') {
             $row = $this->libraryImportIndex['remote'][$bucket][$remoteId] ?? [];
             if ($row) {
@@ -1051,6 +1056,26 @@ trait Library
         }
 
         return [];
+    }
+
+    /*
+     * Silo gives every file of a title the same remote id, so its rows are
+     * matched by path and one remote id may sit on several rows.
+     */
+    public function libraryImportSharedRemoteIds($platform)
+    {
+        return intval($platform) == MediaPlatforms::SILO;
+    }
+
+    /*
+     * The add functions only take the Plex, Emby and Jellyfin columns, so the
+     * flag and remote id of any other platform are set after the insert.
+     */
+    public function flagInsertedLibraryItem($table, $platform, $remoteId, $row)
+    {
+        if (!in_array(intval($platform), [MediaPlatforms::PLEX, MediaPlatforms::EMBY, MediaPlatforms::JELLYFIN])) {
+            $this->applyLibraryImportRowUpdate($table, $platform, $remoteId, $row['path'] ?? '', $row);
+        }
     }
 
     public function findLibraryImportEpisodePathHit($platform, $remoteId, $path, $season, $episode)
@@ -1280,6 +1305,7 @@ trait Library
                 'jellyfin_remote_id' => $flags['jellyfin_remote_id'],
                 'poster'             => strval($item['series_poster'] ?? ''),
             ]);
+            $this->flagInsertedLibraryItem(SERIES_TABLE, $platform, $remoteId, $this->findLibraryImportPathHit(SERIES_TABLE, $platform, $seriesPath));
             return intval($seriesId);
         }
 
@@ -1315,7 +1341,7 @@ trait Library
         }
 
         $row = [];
-        if (trim(strval($item['remote_id'] ?? '')) != '') {
+        if (trim(strval($item['remote_id'] ?? '')) != '' && !$this->libraryImportSharedRemoteIds($mediaApp['platform'])) {
             $row = $this->database->getEpisodeByRemoteId($mediaApp['platform'], $item['remote_id']);
         }
         if (!$row) {
@@ -1531,6 +1557,7 @@ trait Library
             'jellyfin_remote_id' => $flags['jellyfin_remote_id'],
             'poster'             => $poster,
         ]);
+        $this->flagInsertedLibraryItem($table, $platform, $remoteId, $this->findLibraryImportPathHit($table, $platform, $path));
         $added[$bucket]++;
         return 'inserting';
     }
@@ -1687,6 +1714,7 @@ trait Library
             'jellyfin_remote_id' => $flags['jellyfin_remote_id'],
             'poster'             => '',
         ]);
+        $this->flagInsertedLibraryItem(EPISODE_TABLE, $platform, $remoteId, $this->findLibraryImportPathHit(EPISODE_TABLE, $platform, $path));
         $added['episodes']++;
         return 'inserting';
     }
