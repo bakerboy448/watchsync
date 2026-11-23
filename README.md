@@ -76,6 +76,14 @@ Sync -> History
 
 Currently the paths from main are used to match with paths on the listeners. As long as all the apps have the same path access then it will have no problem matching data, creating libraries, etc
 
+### Silo
+
+Silo can only be a listener. It reports each file's path, so it matches by path like the other apps. Silo must see the media at the same paths as the main app.
+
+- The media app key needs the `admin:monitor:read`, `admin:catalog:paths`, and `libraries:read` scopes
+- Each synced Silo user needs their own key with the `watch:read` and `watch:write` scopes. On the Media Apps page open the Silo users list and click the token icon next to each user to add it
+- Watched marks carry no play date, so Silo records the time of the sync
+
 ## Conflict resolution
 
 The system looks at all media apps, finds which one has the newest timestamp & that is what is used. If one app has it marked as finished then all apps get set to finished, otherwise it takes the highest progress time and uses that.
