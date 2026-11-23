@@ -154,6 +154,7 @@ switch ($_POST['event'] ?? '') {
             [translate('plexId'), $item['plex_remote_id'] ?? ''],
             [translate('embyId'), $item['emby_remote_id'] ?? ''],
             [translate('jellyfinId'), $item['jellyfin_remote_id'] ?? ''],
+            [translate('siloId'), $item['silo_remote_id'] ?? ''],
             [translate('poster'), $item['poster'] ?? ''],
         ];
         require RELATIVE_PATH . 'pages/library/itemDetails.php';

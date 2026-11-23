@@ -14,6 +14,7 @@ class MediaApps
     use Plex;
     use Emby;
     use Jellyfin;
+    use Silo;
     use Parity;
 
     protected $database;
@@ -389,6 +390,8 @@ class MediaApps
                 return translate('emby');
             case MediaPlatforms::JELLYFIN:
                 return translate('jellyfin');
+            case MediaPlatforms::SILO:
+                return translate('silo');
             default:
                 return '';
         }
@@ -534,6 +537,9 @@ class MediaApps
             case MediaPlatforms::JELLYFIN:
                 $online = $this->jellyfinIsOnline($url);
                 break;
+            case MediaPlatforms::SILO:
+                $online = $this->siloIsOnline($url);
+                break;
             default:
                 $online = false;
                 break;
@@ -576,6 +582,8 @@ class MediaApps
                 return $this->embyTestConnection($url, $apikey);
             case MediaPlatforms::JELLYFIN:
                 return $this->jellyfinTestConnection($url, $apikey);
+            case MediaPlatforms::SILO:
+                return $this->siloTestConnection($url, $apikey);
             default:
                 return ['error' => true, 'message' => translate('missingRequiredField', [translate('platform')])];
         }
@@ -628,6 +636,9 @@ class MediaApps
                 return ['error' => true, 'message' => translate('mustHaveMainSource')];
             }
             $isMaster = true;
+        }
+        if ($platform == MediaPlatforms::SILO && $isMaster) {
+            return ['error' => true, 'message' => translate('siloListenerOnly')];
         }
 
         $validated = $this->validate($platform, $url, $token, $apikey);
@@ -991,6 +1002,8 @@ class MediaApps
                 return $this->embyGetLibraries($mediaApp['url'], $mediaApp['apikey'], $full);
             case MediaPlatforms::JELLYFIN:
                 return $this->jellyfinGetLibraries($mediaApp['url'], $mediaApp['apikey'], $full);
+            case MediaPlatforms::SILO:
+                return $this->siloGetLibraries($mediaApp['url'], $mediaApp['apikey']);
             default:
                 return [];
         }
@@ -1149,6 +1162,8 @@ class MediaApps
                 return $this->embyGetItems($mediaApp['url'], $mediaApp['apikey'], $libraryKeys, $seriesRemoteId, $seriesTitle, $since);
             case MediaPlatforms::JELLYFIN:
                 return $this->jellyfinGetItems($mediaApp['url'], $mediaApp['apikey'], $libraryKeys, $seriesRemoteId, $seriesTitle, $since);
+            case MediaPlatforms::SILO:
+                return $this->siloGetItems($mediaApp['url'], $mediaApp['apikey'], $libraryKeys);
             default:
                 return ['movies' => [], 'series' => [], 'episodes' => []];
         }
@@ -1167,6 +1182,8 @@ class MediaApps
                 return $this->embyGetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $remoteId);
             case MediaPlatforms::JELLYFIN:
                 return $this->jellyfinGetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $remoteId);
+            case MediaPlatforms::SILO:
+                return $this->siloGetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $remoteId, $userId, $user);
             default:
                 return ['movies' => [], 'episodes' => [], 'error' => true];
         }
@@ -1187,6 +1204,9 @@ class MediaApps
                 return;
             case MediaPlatforms::JELLYFIN:
                 $this->jellyfinSetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $user['remote_id'], $remoteId, $started, $inprogress, $finished);
+                return;
+            case MediaPlatforms::SILO:
+                $this->siloSetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $user, $remoteId, $started, $inprogress, $finished);
                 return;
         }
     }
@@ -1242,6 +1262,8 @@ class MediaApps
             case MediaPlatforms::JELLYFIN:
                 $result = $this->jellyfinDeleteLibrary($mediaApp['url'], $mediaApp['apikey'], $library);
                 break;
+            case MediaPlatforms::SILO:
+                return ['error' => true, 'message' => translate('mediaAppActionNotSupported')];
             default:
                 return ['error' => true, 'message' => translate('mediaAppNotFound')];
         }
@@ -1280,6 +1302,8 @@ class MediaApps
             case MediaPlatforms::JELLYFIN:
                 $result = $this->jellyfinCreateLibrary($mediaApp['url'], $mediaApp['apikey'], $title, $type, $paths);
                 break;
+            case MediaPlatforms::SILO:
+                return ['error' => true, 'message' => translate('mediaAppActionNotSupported')];
             default:
                 return ['error' => true, 'message' => translate('mediaAppNotFound')];
         }
@@ -1304,6 +1328,8 @@ class MediaApps
                 return $this->embyCreateUser($mediaApp['url'], $mediaApp['apikey'], $username, $password);
             case MediaPlatforms::JELLYFIN:
                 return $this->jellyfinCreateUser($mediaApp['url'], $mediaApp['apikey'], $username, $password);
+            case MediaPlatforms::SILO:
+                return ['error' => true, 'message' => translate('mediaAppActionNotSupported')];
             default:
                 return ['error' => true, 'message' => translate('mediaAppNotFound')];
         }
@@ -1348,6 +1374,8 @@ class MediaApps
                 return $this->embyGetUserLibraryKeys($mediaApp['url'], $mediaApp['apikey'], $user);
             case MediaPlatforms::JELLYFIN:
                 return $this->jellyfinGetUserLibraryKeys($mediaApp['url'], $mediaApp['apikey'], $user);
+            case MediaPlatforms::SILO:
+                return $this->siloGetUserLibraryKeys($mediaApp['url'], $mediaApp['apikey'], $user);
             default:
                 return ['all' => false, 'keys' => []];
         }
@@ -1422,6 +1450,8 @@ class MediaApps
                 return $this->embySetUserLibraryAccess($mediaApp['url'], $mediaApp['apikey'], $user['remote_id'] ?? '', $keys, $all);
             case MediaPlatforms::JELLYFIN:
                 return $this->jellyfinSetUserLibraryAccess($mediaApp['url'], $mediaApp['apikey'], $user['remote_id'] ?? '', $keys, $all);
+            case MediaPlatforms::SILO:
+                return ['error' => true, 'message' => translate('mediaAppActionNotSupported')];
             default:
                 return ['error' => true, 'message' => translate('mediaAppNotFound')];
         }
@@ -1626,6 +1656,8 @@ class MediaApps
             case MediaPlatforms::JELLYFIN:
                 $result = $this->jellyfinUpdateLibraryPath($mediaApp['url'] ?? '', $mediaApp['apikey'] ?? '', $library, $replaced['old'], $newPath);
                 break;
+            case MediaPlatforms::SILO:
+                return ['error' => true, 'message' => translate('mediaAppActionNotSupported')];
             default:
                 return ['error' => true, 'message' => translate('mediaAppNotFound')];
         }
@@ -1773,6 +1805,9 @@ class MediaApps
                 break;
             case MediaPlatforms::JELLYFIN:
                 $result = $this->jellyfinGetUsers($url, $mediaApp['apikey']);
+                break;
+            case MediaPlatforms::SILO:
+                $result = $this->siloGetUsers($url, $mediaApp['apikey']);
                 break;
             default:
                 $result = ['error' => true, 'message' => translate('mediaAppNotFound')];
@@ -2040,8 +2075,13 @@ class MediaApps
 
         $masters            = [];
         $mastersByMatchName = [];
+        $mastersByEmail     = [];
         foreach ($this->database->getMediaAppUsers($master['id']) as $user) {
             $masters[strtolower(trim($user['username']))] = $user;
+            $email = strtolower(trim(strval($user['email'] ?? '')));
+            if ($email != '') {
+                $mastersByEmail[$email] = empty($mastersByEmail[$email]) ? $user : ['id' => 0];
+            }
             $matchName = $this->database->mediaAppUserMatchName($user['username']);
             if ($matchName == '') {
                 continue;
@@ -2069,6 +2109,12 @@ class MediaApps
                     $matchName = $this->database->mediaAppUserMatchName($user['username']);
                     if ($matchName != '' && !empty($mastersByMatchName[$matchName]['id'])) {
                         $masterUser = $mastersByMatchName[$matchName];
+                    }
+                }
+                if (!$masterUser) {
+                    $email = strtolower(trim(strval($user['email'] ?? '')));
+                    if ($email != '' && !empty($mastersByEmail[$email]['id'])) {
+                        $masterUser = $mastersByEmail[$email];
                     }
                 }
                 if (!$masterUser) {
@@ -2178,6 +2224,8 @@ class MediaApps
                 return $this->embyPosterUrl($mediaApp['url'] ?? '', $mediaApp['apikey'] ?? '', $remoteId, $poster);
             case MediaPlatforms::JELLYFIN:
                 return $this->jellyfinPosterUrl($mediaApp['url'] ?? '', $mediaApp['apikey'] ?? '', $remoteId, $poster);
+            case MediaPlatforms::SILO:
+                return '';
             default:
                 return $this->plexPosterUrl($mediaApp['url'] ?? '', $mediaApp['token'] ?? '', $poster);
         }
