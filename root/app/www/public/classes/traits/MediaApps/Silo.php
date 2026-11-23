@@ -18,20 +18,34 @@ trait Silo
     protected $siloProfileIds = [];
 
     /*
-     * Silo answers 429 under bulk paging. curl() does not return the
-     * Retry-After header, so the wait grows by two seconds per attempt.
+     * Silo answers 429 under bulk paging. The wait follows Retry-After, and
+     * grows by two seconds per attempt when the header is missing.
      */
     public function siloCurl($url, $headers = [], $method = 'GET', $payload = '', $userPass = [], $timeout = 60)
     {
         for ($attempt = 1; $attempt <= 8; $attempt++) {
             $curl = curl($url, $headers, $method, $payload, $userPass, $timeout);
-            if (intval($curl['code'] ?? 0) != 429) {
+            if (intval($curl['code'] ?? 0) != 429 || $attempt == 8) {
                 break;
             }
-            sleep($attempt * 2);
+            sleep($this->siloRetryWait($curl['retry_after'] ?? '', $attempt));
         }
 
         return $curl;
+    }
+
+    public function siloRetryWait($retryAfter, $attempt)
+    {
+        $retryAfter = trim(strval($retryAfter));
+        if (ctype_digit($retryAfter)) {
+            $wait = intval($retryAfter);
+        } else if ($retryAfter != '' && ($at = strtotime($retryAfter)) !== false) {
+            $wait = $at - time();
+        } else {
+            $wait = $attempt * 2;
+        }
+
+        return max(1, min(60, $wait));
     }
 
     public function siloHeaders($apikey, $profileId = '')
