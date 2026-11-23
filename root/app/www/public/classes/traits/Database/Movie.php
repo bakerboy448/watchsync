@@ -13,7 +13,7 @@ trait Movie
     {
         $movies = [];
 
-        $sql = "SELECT id, title, year, path, plex, emby, jellyfin, plex_remote_id, emby_remote_id, jellyfin_remote_id, poster
+        $sql = "SELECT id, title, year, path, plex, emby, jellyfin, silo, plex_remote_id, emby_remote_id, jellyfin_remote_id, silo_remote_id, poster
                 FROM " . MOVIE_TABLE . "
                 ORDER BY title ASC";
         $res = $this->query($sql);
@@ -26,7 +26,7 @@ trait Movie
 
     public function getMovie($id)
     {
-        $sql = "SELECT id, title, year, path, plex, emby, jellyfin, plex_remote_id, emby_remote_id, jellyfin_remote_id, poster
+        $sql = "SELECT id, title, year, path, plex, emby, jellyfin, silo, plex_remote_id, emby_remote_id, jellyfin_remote_id, silo_remote_id, poster
                 FROM " . MOVIE_TABLE . "
                 WHERE id = " . intval($id);
         $res = $this->query($sql);
@@ -42,7 +42,7 @@ trait Movie
             return [];
         }
 
-        $sql = "SELECT id, title, year, path, plex, emby, jellyfin, plex_remote_id, emby_remote_id, jellyfin_remote_id, poster
+        $sql = "SELECT id, title, year, path, plex, emby, jellyfin, silo, plex_remote_id, emby_remote_id, jellyfin_remote_id, silo_remote_id, poster
                 FROM " . MOVIE_TABLE . "
                 WHERE " . $field . " = '" . $this->prepare($remoteId) . "'";
         $res = $this->query($sql);
