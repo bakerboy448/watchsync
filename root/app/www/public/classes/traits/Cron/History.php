@@ -212,7 +212,7 @@ trait History
             foreach ($platforms as $platform => $flag) {
                 $remote = $item['remote'][$platform] ?? '';
                 if ($remote != '') {
-                    $index['movie']['remote'][$platform][$remote] = $item;
+                    $index['movie']['remote'][$platform][$remote][$item['id']] = $item;
                 }
             }
         }
@@ -222,7 +222,7 @@ trait History
             foreach ($platforms as $platform => $flag) {
                 $remote = $item['remote'][$platform] ?? '';
                 if ($remote != '') {
-                    $index['episode']['remote'][$platform][$remote] = $item;
+                    $index['episode']['remote'][$platform][$remote][$item['id']] = $item;
                 }
             }
         }
@@ -460,7 +460,7 @@ trait History
         $item['remote'][$listenerPlatform]                      = $savedRemote;
         $item['path']                                           = strval($saved['path'] ?? $fixedPath);
         $index[$type]['id'][$itemId]                            = $item;
-        $index[$type]['remote'][$listenerPlatform][$savedRemote] = $item;
+        $index[$type]['remote'][$listenerPlatform][$savedRemote][$itemId] = $item;
         $linkedNow = !$beforeFlag || $beforeRemote == '' || $beforeRemote != $savedRemote;
         if (!$linkedNow && !$pathChanged) {
             return $item;
@@ -621,25 +621,24 @@ trait History
                     if (!is_array($watch)) {
                         continue;
                     }
-                    $item = $index[$type]['remote'][$platform][strval($remoteId)] ?? [];
-                    if (!$item) {
-                        continue;
-                    }
-                    $key       = $type . ':' . intval($item['id']);
-                    $sourceKey = intval($app['id']) . ':' . intval($user['id']);
                     $watch     = [
                         'started'    => intval($watch['started'] ?? 0) ? 1 : 0,
                         'inprogress' => intval($watch['inprogress'] ?? 0),
                         'finished'   => intval($watch['finished'] ?? 0),
                     ];
-                    if (empty($incoming[$key]['sources'][$sourceKey])) {
-                        $incoming[$key]['item']                = $item;
-                        $incoming[$key]['type']                = $type;
-                        $incoming[$key]['sources'][$sourceKey] = $watch;
-                    } else {
-                        $incoming[$key]['sources'][$sourceKey] = mergeWatchState($incoming[$key]['sources'][$sourceKey], $watch);
+                    $sourceKey = intval($app['id']) . ':' . intval($user['id']);
+                    // Several rows can share one remote id (Silo HD and 4K files of one title).
+                    foreach ($index[$type]['remote'][$platform][strval($remoteId)] ?? [] as $item) {
+                        $key = $type . ':' . intval($item['id']);
+                        if (empty($incoming[$key]['sources'][$sourceKey])) {
+                            $incoming[$key]['item']                = $item;
+                            $incoming[$key]['type']                = $type;
+                            $incoming[$key]['sources'][$sourceKey] = $watch;
+                        } else {
+                            $incoming[$key]['sources'][$sourceKey] = mergeWatchState($incoming[$key]['sources'][$sourceKey], $watch);
+                        }
+                        $this->addStat('pulled', 1, $app);
                     }
-                    $this->addStat('pulled', 1, $app);
                 }
             }
         }
