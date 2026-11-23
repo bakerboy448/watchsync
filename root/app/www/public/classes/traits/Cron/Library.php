@@ -1562,6 +1562,33 @@ trait Library
         return 'inserting';
     }
 
+    /*
+     * Rows stored as S00E00 with the series name as title label every history
+     * line for that file as a series. A later pull that knows the episode code
+     * writes it back.
+     */
+    public function backfillEpisodeCode($row, $item)
+    {
+        $season  = intval($item['season'] ?? 0);
+        $episode = intval($item['episode'] ?? 0);
+        if (!$row || !intval($row['id'] ?? 0) || intval($row['season'] ?? 0) || intval($row['episode'] ?? 0) || (!$season && !$episode)) {
+            return $row;
+        }
+
+        $sets  = ['`season` = ' . $season, '`episode` = ' . $episode];
+        $title = trim(strval($item['title'] ?? ''));
+        if ($title != '') {
+            $sets[]       = "`title` = '" . $this->database->prepare($title) . "'";
+            $row['title'] = $title;
+        }
+        $this->database->query("UPDATE " . EPISODE_TABLE . " SET " . implode(', ', $sets) . " WHERE id = " . intval($row['id']));
+        $row['season']  = $season;
+        $row['episode'] = $episode;
+        $this->rememberLibraryImportItem(EPISODE_TABLE, $row);
+
+        return $row;
+    }
+
     public function saveLibraryEpisode($mediaApp, $item, &$added, &$updated, &$unchanged)
     {
         $platform = $mediaApp['platform'];
@@ -1583,6 +1610,7 @@ trait Library
                 }
             }
         }
+        $row   = $this->backfillEpisodeCode($row, $item);
         $moved = $this->countMovedLibraryItem($this->moveMatchedLibraryItem(EPISODE_TABLE, $row, $path, $platform, $remoteId, [], intval($mediaApp['id'] ?? 0)), 'episodes', $updated, $unchanged);
         if ($moved != '') {
             return $moved;
