@@ -186,6 +186,7 @@ trait History
             MediaPlatforms::PLEX     => 'plex',
             MediaPlatforms::EMBY     => 'emby',
             MediaPlatforms::JELLYFIN => 'jellyfin',
+            MediaPlatforms::SILO     => 'silo',
         ];
         $libraries = [];
         foreach ($apps as $app) {
