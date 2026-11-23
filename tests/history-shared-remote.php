@@ -38,7 +38,25 @@ class StubDatabase
 
     public function getEpisodes()
     {
+        return [
+            ['id' => 20, 'series_id' => 0, 'season' => 1, 'episode' => 1, 'path' => '/tv/Show/S01E01.mkv', 'plex' => 1, 'plex_remote_id' => 'pe1', 'silo' => 1, 'silo_remote_id' => 'se1'],
+            ['id' => 21, 'series_id' => 0, 'season' => 1, 'episode' => 1, 'path' => '/tv-4k/Show/S01E01.mkv', 'plex' => 0, 'plex_remote_id' => '', 'silo' => 1, 'silo_remote_id' => 'se1'],
+        ];
+    }
+
+    public function findEpisodeRemoteByCode($episodeId, $platform)
+    {
+        return $platform == MediaPlatforms::PLEX ? 'pe1' : '';
+    }
+
+    public function getMediaApps()
+    {
         return [];
+    }
+
+    public function mediaLibraryFlag($platform)
+    {
+        return 'plex';
     }
 
     public function getUserWatchState($userId, $platform)
@@ -58,10 +76,10 @@ class StubMediaApps
     {
         $watched = ['started' => 1, 'inprogress' => 0, 'finished' => 1];
         if ($app['platform'] == MediaPlatforms::PLEX) {
-            return ['movies' => ['p1' => $watched, 'p2' => $watched], 'episodes' => []];
+            return ['movies' => ['p1' => $watched, 'p2' => $watched], 'episodes' => ['pe1' => $watched]];
         }
 
-        return ['movies' => ['s1' => $watched], 'episodes' => []];
+        return ['movies' => ['s1' => $watched], 'episodes' => ['se1' => $watched]];
     }
 }
 

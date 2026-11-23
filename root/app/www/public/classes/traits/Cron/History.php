@@ -707,6 +707,10 @@ trait History
                         loggerFlush($this->logfile);
                     }
                 }
+                if ($gathered === null && $remote != '' && !empty($item['flag'][$platform])) {
+                    // The remote can come from a repair or episode-code lookup, or be shared with another row.
+                    $gathered = $member['watch_remote'][$type][$remote] ?? null;
+                }
                 if ($remote == '' || empty($item['flag'][$platform])) {
                     if (!watchStateSatisfies($gathered ?? [], $merged)) {
                         $counts[$countKey]['skipped']++;
