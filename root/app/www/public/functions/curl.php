@@ -57,6 +57,15 @@ function curl($url, $headers = [], $method = 'GET', $payload = '', $userPass = [
 
     curl_setopt($ch, CURLOPT_HTTPHEADER, $curlHeaders);
 
+    $retryAfter = '';
+    curl_setopt($ch, CURLOPT_HEADERFUNCTION, function ($ch, $line) use (&$retryAfter) {
+        if (stripos($line, 'retry-after:') === 0) {
+            $retryAfter = trim(substr($line, 12));
+        }
+
+        return strlen($line);
+    });
+
     if ($payload && $method != 'GET') {
         curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
     }
@@ -110,6 +119,9 @@ function curl($url, $headers = [], $method = 'GET', $payload = '', $userPass = [
         'error'    => $error,
         'code'     => $code,
     ];
+    if ($retryAfter != '') {
+        $result['retry_after'] = $retryAfter;
+    }
     if (function_exists('webhookRecordResponse')) {
         $recorded          = $result;
         $recorded['error'] = $curlError != '' ? $curlError : $error;
