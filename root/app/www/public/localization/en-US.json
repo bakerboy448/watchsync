@@ -297,6 +297,8 @@
     "mediaAppUrlDescription": "Server URL, for example http://192.168.1.10:32400 or http://192.168.1.10:8096",
     "syncMode": "Sync mode",
     "syncModeDescription": "Push (Watchsync → Media app). Pull (Media app → Watchsync). Both (Watchsync ↔ Media apps).",
+    "pathMaps": "Path mappings",
+    "pathMapsDescription": "One per line: path this app reports => path the main app reports, for example D:\\Media => /media. Use it when this app runs on another host or OS.",
     "pushAndPull": "Both (Watchsync ↔ Media apps)",
     "pushOnly": "Push (Watchsync → Media app)",
     "pushMainToListeners": "Push (Main → Listeners)",

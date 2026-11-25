@@ -1784,6 +1784,7 @@ trait Library
         if (!$mediaApps->scanLibraryItemAllowed($mediaApp, $item)) {
             return '';
         }
+        $item['path'] = $this->database->mapMediaAppPath($mediaApp, $item['path'] ?? '');
 
         $platform = $mediaApp['platform'];
         $remoteId = trim(strval($item['remote_id'] ?? ''));
