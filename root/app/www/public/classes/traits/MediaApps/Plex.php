@@ -1004,19 +1004,20 @@ trait Plex
         $viewOffset = intval($this->plexValue($row, 'viewOffset'));
         $inprogress = $viewOffset > 0 ? intval($viewOffset / 1000) : 0;
         $runtime    = $this->plexRuntimeSeconds($row);
+        $meta       = array_filter(['viewed_at' => $this->plexViewedAt($row), 'runtime' => $runtime]);
         if ($viewCount > 0 || ($fallback == 'watched' && $inprogress <= 0)) {
             return [
                 'started'    => 1,
                 'inprogress' => 0,
                 'finished'   => watchFinishedSeconds(true, $runtime),
-            ];
+            ] + $meta;
         }
         if ($inprogress > 0) {
             return [
                 'started'    => 1,
                 'inprogress' => $inprogress,
                 'finished'   => 0,
-            ];
+            ] + $meta;
         }
 
         return [];
@@ -1115,6 +1116,8 @@ trait Plex
                     'started'    => 1,
                     'inprogress' => $finished ? 0 : $inprogress,
                     'finished'   => $finished,
+                    'viewed_at'  => $viewedAt,
+                    'runtime'    => $runtime,
                 ]);
             }
 
@@ -2059,6 +2062,23 @@ trait Plex
         }
 
         return $url . $poster . (str_contains($poster, '?') ? '&' : '?') . $query;
+    }
+
+    /*
+     * Weeks Plex keeps an unfinished item in Continue Watching (OnDeckWindow).
+     * Zero when the server does not answer.
+     */
+    public function plexContinueWatchingWeeks($url, $token)
+    {
+        $curl     = curl(sprintf(MediaAppEndpoints::ENDPOINT_PLEX_PREFS, rtrim(trim($url), '/')), $this->plexHeaders($token), 'GET');
+        $response = intval($curl['code'] ?? 0) == 200 ? $this->parsePlexResponse($curl) : [];
+        foreach ($response['MediaContainer']['Setting'] ?? [] as $setting) {
+            if (strval($setting['id'] ?? '') == 'OnDeckWindow') {
+                return max(0, intval($setting['value'] ?? 0));
+            }
+        }
+
+        return 0;
     }
 
     public function plexHeaders($token, $clientId = '', $accept = 'application/json')

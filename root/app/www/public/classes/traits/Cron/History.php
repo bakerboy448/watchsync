@@ -627,11 +627,11 @@ trait History
                     if (!is_array($watch)) {
                         continue;
                     }
-                    $watch     = [
+                    $watch     = watchStateMeta([
                         'started'    => intval($watch['started'] ?? 0) ? 1 : 0,
                         'inprogress' => intval($watch['inprogress'] ?? 0),
                         'finished'   => intval($watch['finished'] ?? 0),
-                    ];
+                    ], [], $watch);
                     $sourceKey = intval($app['id']) . ':' . intval($user['id']);
                     // Several rows can share one remote id (Silo HD and 4K files of one title).
                     foreach ($index[$type]['remote'][$platform][strval($remoteId)] ?? [] as $item) {
@@ -754,7 +754,7 @@ trait History
                 }
                 if ($needsPush && !$dry) {
                     $this->logWatchSetAction($type, intval($item['id']), $merged, $user['username'] ?? '', APP_NAME, $app['name'] ?? '', false);
-                    $pushed = $mediaApps->setWatchStatus($app, $user, $remote, $merged['started'], $merged['inprogress'], $merged['finished']);
+                    $pushed = $mediaApps->setWatchStatus($app, $user, $remote, $merged['started'], $merged['inprogress'], $merged['finished'], $merged);
                     if (is_array($pushed) && intval($pushed['code'] ?? 0) == 404) {
                         $repaired = $this->historyRepairUnlinkedItem($type, $item, $app, $index, true);
                         $fresh    = trim(strval($repaired['remote'][$platform] ?? ''));
@@ -762,7 +762,7 @@ trait History
                             $item                           = $repaired;
                             $incoming[$incomingKey]['item'] = $repaired;
                             $remote                         = $fresh;
-                            $mediaApps->setWatchStatus($app, $user, $remote, $merged['started'], $merged['inprogress'], $merged['finished']);
+                            $mediaApps->setWatchStatus($app, $user, $remote, $merged['started'], $merged['inprogress'], $merged['finished'], $merged);
                         }
                     }
                     $this->addStat('pushed', 1, $app);
