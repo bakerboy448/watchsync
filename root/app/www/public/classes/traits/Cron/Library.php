@@ -1020,7 +1020,34 @@ trait Library
             return true;
         }
 
-        return false;
+        return $this->libraryImportRemoteIdRefreshes($platform);
+    }
+
+    /*
+     * Emby, Jellyfin and Silo give a re-created item a new id at the same
+     * path. For them a path match wins over a stored id, so the stale id is
+     * replaced instead of kept for history pushes that 404.
+     */
+    public function libraryImportRemoteIdRefreshes($platform)
+    {
+        return in_array(intval($platform), [MediaPlatforms::EMBY, MediaPlatforms::JELLYFIN, MediaPlatforms::SILO]);
+    }
+
+    public function libraryImportStaleRemote($row, $platform, $remoteId, $path)
+    {
+        $field     = $this->database->mediaLibraryRemoteField($platform);
+        $rowRemote = trim(strval($row[$field] ?? ''));
+        $remoteId  = trim(strval($remoteId));
+        if (!$field || $remoteId == '' || $rowRemote == '' || $rowRemote == $remoteId) {
+            return false;
+        }
+        if (!$this->libraryImportRemoteIdRefreshes($platform)) {
+            return false;
+        }
+        $path    = $this->database->normalizeLibraryPath($path);
+        $rowPath = $this->database->normalizeLibraryPath($row['path'] ?? '');
+
+        return $path != '' && strcasecmp($path, $rowPath) == 0;
     }
 
     public function findLibraryImportPathHit($table, $platform, $path)
@@ -1199,7 +1226,10 @@ trait Library
         }
         if ($field && $remoteId != '' && $remoteId != null) {
             $rowRemote = trim(strval($row[$field] ?? ''));
-            if ($rowRemote == '') {
+            if ($rowRemote == '' || $this->libraryImportStaleRemote($row, $platform, $remoteId, $path)) {
+                if ($rowRemote != '') {
+                    logger($this->logfile, 'library remote refresh id=' . $id . ' ' . $field . ' from=' . $rowRemote . ' to=' . $remoteId);
+                }
                 $sets[]      = "`" . $field . "` = " . $this->database->sqlStringOrNull($remoteId);
                 $row[$field] = $remoteId;
             }
@@ -1396,7 +1426,7 @@ trait Library
             return 'updated';
         }
         if ($remoteId != '' && $rowRemote != '' && $rowRemote != $remoteId) {
-            return 'unchanged';
+            return $this->libraryImportStaleRemote($row, $platform, $remoteId, $path) ? 'updated' : 'unchanged';
         }
 
         $rowPath = $this->database->normalizeLibraryPath($row['path'] ?? '');

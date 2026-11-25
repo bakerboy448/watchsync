@@ -448,7 +448,7 @@ trait Emby
             if (!empty($cron)) {
                 $cron->log('emby skip setWatchStatus item=' . $remoteId . ' user=' . $userId . ' missing_or_inaccessible code=' . $itemCode);
             }
-            return;
+            return ['error' => true, 'code' => $itemCode];
         }
 
         $item      = is_array($itemCurl['response'] ?? null) ? $itemCurl['response'] : [];
