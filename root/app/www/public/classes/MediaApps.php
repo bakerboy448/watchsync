@@ -1200,14 +1200,11 @@ class MediaApps
                 $this->plexSetWatchStatus($mediaApp, $user, $remoteId, $started, $inprogress, $finished);
                 return;
             case MediaPlatforms::EMBY:
-                $this->embySetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $user['remote_id'], $remoteId, $started, $inprogress, $finished);
-                return;
+                return $this->embySetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $user['remote_id'], $remoteId, $started, $inprogress, $finished);
             case MediaPlatforms::JELLYFIN:
-                $this->jellyfinSetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $user['remote_id'], $remoteId, $started, $inprogress, $finished);
-                return;
+                return $this->jellyfinSetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $user['remote_id'], $remoteId, $started, $inprogress, $finished);
             case MediaPlatforms::SILO:
-                $this->siloSetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $user, $remoteId, $started, $inprogress, $finished);
-                return;
+                return $this->siloSetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $user, $remoteId, $started, $inprogress, $finished);
         }
     }
 
