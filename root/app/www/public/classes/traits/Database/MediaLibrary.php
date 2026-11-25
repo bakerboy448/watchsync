@@ -60,6 +60,98 @@ trait MediaLibrary
         return rtrim($path, '/');
     }
 
+    /*
+     * An app's path map holds one "from => to" pair per line, like the *arr
+     * Remote Path Mappings. A Windows server that reports D:\Media\... can map
+     * D:\Media => /media so its items match the main app's container paths.
+     */
+    public function mediaAppPathMaps($mediaApp)
+    {
+        static $cache = [];
+
+        $text = strval($mediaApp['path_maps'] ?? '');
+        if (trim($text) == '') {
+            return [];
+        }
+        if (isset($cache[$text])) {
+            return $cache[$text];
+        }
+
+        $maps = [];
+        foreach (preg_split('/\r\n|\r|\n/', $text) as $line) {
+            $parts = explode('=>', $line, 2);
+            if (count($parts) != 2) {
+                continue;
+            }
+            $from = rtrim($this->normalizeLibraryPath($parts[0]), '/');
+            $to   = $this->normalizeLibraryPath($parts[1]);
+            if ($from == '' || $to == '') {
+                continue;
+            }
+            $maps[] = ['from' => $from, 'to' => $to];
+        }
+        usort($maps, function ($left, $right) {
+            return strlen($right['from']) <=> strlen($left['from']);
+        });
+
+        return $cache[$text] = $maps;
+    }
+
+    public function mapMediaAppPath($mediaApp, $path)
+    {
+        $maps = $this->mediaAppPathMaps($mediaApp);
+        if (!$maps) {
+            return $path;
+        }
+
+        $normal = $this->normalizeLibraryPath($path);
+        if ($normal == '') {
+            return $path;
+        }
+
+        $lower = strtolower($normal);
+        foreach ($maps as $map) {
+            $from = strtolower($map['from']);
+            if ($lower == $from || str_starts_with($lower, $from . '/')) {
+                return $this->normalizeLibraryPath(rtrim($map['to'], '/') . substr($normal, strlen($map['from'])));
+            }
+        }
+
+        return $path;
+    }
+
+    public function mapMediaAppItems($mediaApp, $items)
+    {
+        if (!is_array($items) || !$this->mediaAppPathMaps($mediaApp)) {
+            return $items;
+        }
+
+        foreach (['movies', 'series', 'episodes'] as $bucket) {
+            foreach ($items[$bucket] ?? [] as $index => $item) {
+                if (isset($item['path'])) {
+                    $items[$bucket][$index]['path'] = $this->mapMediaAppPath($mediaApp, $item['path']);
+                }
+            }
+        }
+
+        return $items;
+    }
+
+    public function mapMediaAppLibraries($mediaApp, $libraries)
+    {
+        if (!is_array($libraries) || !$this->mediaAppPathMaps($mediaApp)) {
+            return $libraries;
+        }
+
+        foreach ($libraries as $index => $library) {
+            foreach ($library['paths'] ?? [] as $pathIndex => $path) {
+                $libraries[$index]['paths'][$pathIndex] = $this->mapMediaAppPath($mediaApp, $path);
+            }
+        }
+
+        return $libraries;
+    }
+
     public function normalizePath($path, $type = '')
     {
         $path = $this->normalizeLibraryPath($path);

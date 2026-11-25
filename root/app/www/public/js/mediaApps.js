@@ -42,6 +42,7 @@ function saveMediaApp(id)
     payload += '&token=' + encodeURIComponent($('#mediaAppToken').val() || '');
     payload += '&apikey=' + encodeURIComponent($('#mediaAppApikey').val() || '');
     payload += '&syncMode=' + encodeURIComponent($('#mediaAppSyncMode').val() || '');
+    payload += '&pathMaps=' + encodeURIComponent($('#mediaAppPathMaps').val() || '');
     payload += '&master=' + ($('#mediaAppMaster').is(':checked') ? '1' : '');
     payload += '&active=' + ($('#mediaAppActive').is(':checked') ? '1' : '');
 

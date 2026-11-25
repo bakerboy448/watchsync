@@ -17,7 +17,7 @@ trait MediaApp
 
         $mediaApps = [];
 
-        $sql = "SELECT id, name, platform, url, token, apikey, role, sync_mode, active, server_id, server_name, last_scan, needs_sync, webhooks
+        $sql = "SELECT id, name, platform, url, token, apikey, role, sync_mode, active, server_id, server_name, last_scan, needs_sync, webhooks, path_maps
                 FROM " . MEDIA_APP_TABLE . "
                 ORDER BY role ASC, name ASC";
         $res = $this->query($sql);
@@ -126,6 +126,17 @@ trait MediaApp
     {
         $sql                  = "UPDATE " . MEDIA_APP_TABLE . "
                 SET webhooks = " . intval($enabled) . "
+                WHERE id = " . intval($id);
+        $res                  = $this->query($sql);
+        $this->mediaAppsCache = null;
+
+        return $res;
+    }
+
+    public function setMediaAppPathMaps($id, $pathMaps)
+    {
+        $sql                  = "UPDATE " . MEDIA_APP_TABLE . "
+                SET path_maps = '" . $this->prepare(trim(strval($pathMaps))) . "'
                 WHERE id = " . intval($id);
         $res                  = $this->query($sql);
         $this->mediaAppsCache = null;

@@ -23,6 +23,11 @@ class StubDatabase
         return [];
     }
 
+    public function mapMediaAppLibraries($app, $libraries)
+    {
+        return $libraries;
+    }
+
     public function getSeriesRows()
     {
         return [];
