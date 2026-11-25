@@ -155,11 +155,11 @@ function mergeWatchState($current, $incoming)
     $started    = intval($incoming['started'] ?? 0) ? 1 : 0;
 
     if (!is_array($current) || !$current) {
-        return [
+        return watchStateMeta([
             'started'    => ($started || $finished || $inprogress) ? 1 : 0,
             'inprogress' => $finished ? 0 : $inprogress,
             'finished'   => $finished,
-        ];
+        ], [], $incoming);
     }
 
     $result = [
@@ -180,6 +180,22 @@ function mergeWatchState($current, $incoming)
     }
     if ($result['finished'] || $result['inprogress']) {
         $result['started'] = 1;
+    }
+
+    return watchStateMeta($result, $current, $incoming);
+}
+
+/*
+ * viewed_at is the source's last view time and runtime its length in seconds.
+ * A listener that dates its writes needs both; the state compare ignores them.
+ */
+function watchStateMeta($result, $current, $incoming)
+{
+    foreach (['viewed_at', 'runtime'] as $field) {
+        $value = max(intval($current[$field] ?? 0), intval($incoming[$field] ?? 0));
+        if ($value > 0) {
+            $result[$field] = $value;
+        }
     }
 
     return $result;

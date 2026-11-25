@@ -66,6 +66,7 @@ interface MediaAppEndpoints
 {
     public const ENDPOINT_PLEX_ONLINE                 = '%s/identity';
     public const ENDPOINT_PLEX_SERVER                 = '%s/';
+    public const ENDPOINT_PLEX_PREFS                  = '%s/:/prefs';
     public const ENDPOINT_PLEX_ACCOUNTS               = '%s/accounts';
     public const ENDPOINT_PLEX_LIBRARIES              = '%s/library/sections';
     public const ENDPOINT_PLEX_LIBRARIES_CREATE       = '%s/library/sections?%s';
