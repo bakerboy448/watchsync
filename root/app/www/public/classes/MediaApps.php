@@ -1213,7 +1213,7 @@ class MediaApps
             case MediaPlatforms::EMBY:
                 return $this->embySetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $user['remote_id'], $remoteId, $started, $inprogress, $finished);
             case MediaPlatforms::JELLYFIN:
-                return $this->jellyfinSetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $user['remote_id'], $remoteId, $started, $inprogress, $finished);
+                return $this->jellyfinSetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $user['remote_id'], $remoteId, $started, $inprogress, $finished, $watch);
             case MediaPlatforms::SILO:
                 return $this->siloSetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $user, $remoteId, $started, $inprogress, $finished, $watch, $this->resumeCutoff());
         }
