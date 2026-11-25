@@ -351,7 +351,11 @@ trait History
         return $plex;
     }
 
-    public function historyRepairUnlinkedItem($type, $item, $listenerApp, &$index)
+    /*
+     * $staleRemote is set when a push to the stored remote id got a 404: the
+     * listener re-created the item under a new id, so look it up again.
+     */
+    public function historyRepairUnlinkedItem($type, $item, $listenerApp, &$index, $staleRemote = false)
     {
         global $mediaApps;
 
@@ -360,27 +364,29 @@ trait History
         if (!$itemId || !$listenerPlatform) {
             return [];
         }
-        if (!empty($item['flag'][$listenerPlatform]) && trim(strval($item['remote'][$listenerPlatform] ?? '')) != '') {
+        if (!$staleRemote && !empty($item['flag'][$listenerPlatform]) && trim(strval($item['remote'][$listenerPlatform] ?? '')) != '') {
             return [];
         }
 
         $plexApp    = $this->historyPlexApp();
         $plexRemote = trim(strval($item['remote'][MediaPlatforms::PLEX] ?? ''));
-        if (!$plexApp || $plexRemote == '') {
-            return [];
+        $fixedPath  = '';
+        if ($plexApp && $plexRemote != '') {
+            if (!isset($this->plexCheckFilesCache)) {
+                $this->plexCheckFilesCache = [];
+            }
+            if (!array_key_exists($plexRemote, $this->plexCheckFilesCache)) {
+                $this->plexCheckFilesCache[$plexRemote] = $mediaApps->plexResolvePathWithCheckFiles(
+                    strval($plexApp['url'] ?? ''),
+                    strval($plexApp['token'] ?? ''),
+                    $plexRemote,
+                );
+            }
+            $fixedPath = strval($this->plexCheckFilesCache[$plexRemote] ?? '');
         }
-
-        if (!isset($this->plexCheckFilesCache)) {
-            $this->plexCheckFilesCache = [];
+        if ($fixedPath == '' && $staleRemote) {
+            $fixedPath = strval($item['path'] ?? '');
         }
-        if (!array_key_exists($plexRemote, $this->plexCheckFilesCache)) {
-            $this->plexCheckFilesCache[$plexRemote] = $mediaApps->plexResolvePathWithCheckFiles(
-                strval($plexApp['url'] ?? ''),
-                strval($plexApp['token'] ?? ''),
-                $plexRemote,
-            );
-        }
-        $fixedPath = strval($this->plexCheckFilesCache[$plexRemote] ?? '');
         if ($fixedPath == '') {
             return [];
         }
@@ -748,7 +754,17 @@ trait History
                 }
                 if ($needsPush && !$dry) {
                     $this->logWatchSetAction($type, intval($item['id']), $merged, $user['username'] ?? '', APP_NAME, $app['name'] ?? '', false);
-                    $mediaApps->setWatchStatus($app, $user, $remote, $merged['started'], $merged['inprogress'], $merged['finished']);
+                    $pushed = $mediaApps->setWatchStatus($app, $user, $remote, $merged['started'], $merged['inprogress'], $merged['finished']);
+                    if (is_array($pushed) && intval($pushed['code'] ?? 0) == 404) {
+                        $repaired = $this->historyRepairUnlinkedItem($type, $item, $app, $index, true);
+                        $fresh    = trim(strval($repaired['remote'][$platform] ?? ''));
+                        if ($fresh != '' && $fresh != $remote) {
+                            $item                           = $repaired;
+                            $incoming[$incomingKey]['item'] = $repaired;
+                            $remote                         = $fresh;
+                            $mediaApps->setWatchStatus($app, $user, $remote, $merged['started'], $merged['inprogress'], $merged['finished']);
+                        }
+                    }
                     $this->addStat('pushed', 1, $app);
                 }
                 if ($dry && ($dbChanged || $needsPush)) {
