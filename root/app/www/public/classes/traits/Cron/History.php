@@ -190,7 +190,7 @@ trait History
         ];
         $libraries = [];
         foreach ($apps as $app) {
-            $libraries[intval($app['id'])] = $this->database->getMediaAppLibraries($app['id']);
+            $libraries[intval($app['id'])] = $this->database->mapMediaAppLibraries($app, $this->database->getMediaAppLibraries($app['id']));
         }
 
         $series = [];
