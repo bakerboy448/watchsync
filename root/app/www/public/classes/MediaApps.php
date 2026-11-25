@@ -23,6 +23,7 @@ class MediaApps
     protected $onlineCache        = [];
     protected $deletedUserCache   = null;
     protected $plexDeletedChecked = false;
+    protected $resumeCutoff       = null;
 
     public function __construct()
     {
@@ -1199,7 +1200,7 @@ class MediaApps
         }
     }
 
-    public function setWatchStatus($mediaApp, $user, $remoteId, $started, $inprogress, $finished)
+    public function setWatchStatus($mediaApp, $user, $remoteId, $started, $inprogress, $finished, $watch = [])
     {
         if (!$this->isOnline($mediaApp)) {
             return;
@@ -1214,8 +1215,30 @@ class MediaApps
             case MediaPlatforms::JELLYFIN:
                 return $this->jellyfinSetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $user['remote_id'], $remoteId, $started, $inprogress, $finished);
             case MediaPlatforms::SILO:
-                return $this->siloSetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $user, $remoteId, $started, $inprogress, $finished);
+                return $this->siloSetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $user, $remoteId, $started, $inprogress, $finished, $watch, $this->resumeCutoff());
         }
+    }
+
+    /*
+     * Oldest view time a resume point may carry, from the main Plex server's
+     * Continue Watching window. Plex's default is 16 weeks.
+     */
+    public function resumeCutoff()
+    {
+        if ($this->resumeCutoff !== null) {
+            return $this->resumeCutoff;
+        }
+
+        $weeks = 0;
+        foreach ($this->database->getMediaApps() ?: [] as $app) {
+            if (!empty($app['active']) && intval($app['role'] ?? 0) == MediaAppRoles::MASTER && intval($app['platform'] ?? 0) == MediaPlatforms::PLEX) {
+                $weeks = $this->plexContinueWatchingWeeks($app['url'], $app['token']);
+                break;
+            }
+        }
+        $this->resumeCutoff = time() - ($weeks ?: 16) * 604800;
+
+        return $this->resumeCutoff;
     }
 
     public function libraryTypeForPlatform($type, $platform)

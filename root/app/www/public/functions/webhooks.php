@@ -924,7 +924,7 @@ function webhookPushWatch($sourceApp, $sourceUser, $item, $type, $state)
 
         $before             = count($webhookResponses);
         $webhookResponseApp = $linkedApp;
-        $mediaApps->setWatchStatus($linkedApp, $linkedUser, $remoteId, $state['started'], $state['inprogress'], $state['finished']);
+        $mediaApps->setWatchStatus($linkedApp, $linkedUser, $remoteId, $state['started'], $state['inprogress'], $state['finished'], ['viewed_at' => time()] + $state);
         $webhookResponseApp = [];
         $added              = array_slice($webhookResponses, $before);
         if (!$added) {

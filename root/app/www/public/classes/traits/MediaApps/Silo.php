@@ -464,11 +464,15 @@ trait Silo
     }
 
     /*
-     * A finished item is marked watched, a started one has its position
-     * written through the progress sync, anything else is marked unwatched.
-     * The mark takes no play date, so Silo records the time of the write.
+     * Started and finished items go through the progress sync with the
+     * source's view time as updated_at, so Silo keeps the real date and never
+     * replaces newer local playback. A finished item is sent at its full
+     * runtime and Silo's watched threshold marks it complete. Silo's
+     * markWatched takes no date, so it is not used. An item with no known
+     * view time is skipped, as is a resume point older than the cutoff.
+     * Anything else is marked unwatched.
      */
-    public function siloSetWatchStatus($url, $apikey, $user, $remoteId, $started, $inprogress, $finished)
+    public function siloSetWatchStatus($url, $apikey, $user, $remoteId, $started, $inprogress, $finished, $watch = [], $resumeCutoff = 0)
     {
         $url = rtrim(trim($url), '/');
         $key = $this->siloUserKey($user);
@@ -486,16 +490,16 @@ trait Silo
         }
 
         $headers = $this->siloHeaders($key, $profileId);
-        if (!$finished && $started && $inprogress) {
-            $payload = json_encode(['items' => [[
-                'media_item_id'   => strval($remoteId),
-                'position_ms'     => intval($inprogress) * 1000,
-                'duration_ms'     => 0,
-                'force_overwrite' => true,
-            ]]]);
-            $curl = $this->siloCurl(sprintf(MediaAppEndpoints::ENDPOINT_SILO_SYNC_PROGRESS, $url), $headers, 'POST', $payload);
+        if ($finished || ($started && $inprogress)) {
+            $item = $this->siloProgressItem($remoteId, $inprogress, $finished, $watch, $resumeCutoff);
+            if (!empty($item['skip'])) {
+                $this->siloLog('skip setWatchStatus item=' . $remoteId . ' user=' . ($user['remote_id'] ?? '') . ' ' . $item['skip']);
+
+                return ['error' => false, 'code' => 0, 'skipped' => $item['skip']];
+            }
+            $curl = $this->siloCurl(sprintf(MediaAppEndpoints::ENDPOINT_SILO_SYNC_PROGRESS, $url), $headers, 'POST', json_encode(['items' => [$item]]));
         } else {
-            $curl = $this->siloCurl(sprintf(MediaAppEndpoints::ENDPOINT_SILO_WATCHED, $url, rawurlencode($remoteId)), $headers, $finished ? 'POST' : 'DELETE');
+            $curl = $this->siloCurl(sprintf(MediaAppEndpoints::ENDPOINT_SILO_WATCHED, $url, rawurlencode($remoteId)), $headers, 'DELETE');
         }
         $code = intval($curl['code'] ?? 0);
         if ($code < 200 || $code > 299) {
@@ -503,5 +507,27 @@ trait Silo
         }
 
         return ['error' => $code < 200 || $code > 299, 'code' => $code];
+    }
+
+    public function siloProgressItem($remoteId, $inprogress, $finished, $watch, $resumeCutoff)
+    {
+        $viewedAt = intval($watch['viewed_at'] ?? 0);
+        $runtime  = max(intval($watch['runtime'] ?? 0), intval($finished));
+        if ($viewedAt <= 0) {
+            return ['skip' => 'no view date'];
+        }
+        if ($finished && $runtime <= 1) {
+            return ['skip' => 'no runtime'];
+        }
+        if (!$finished && $resumeCutoff && $viewedAt < $resumeCutoff) {
+            return ['skip' => 'resume point older than continue watching window'];
+        }
+
+        return [
+            'media_item_id' => strval($remoteId),
+            'position_ms'   => ($finished ? $runtime : intval($inprogress)) * 1000,
+            'duration_ms'   => $runtime * 1000,
+            'updated_at'    => gmdate('Y-m-d\TH:i:s\Z', $viewedAt),
+        ];
     }
 }
