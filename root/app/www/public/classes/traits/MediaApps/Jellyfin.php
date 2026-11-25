@@ -366,7 +366,7 @@ trait Jellyfin
         return $status;
     }
 
-    public function jellyfinSetWatchStatus($url, $apikey, $userId, $remoteId, $started, $inprogress, $finished)
+    public function jellyfinSetWatchStatus($url, $apikey, $userId, $remoteId, $started, $inprogress, $finished, $watch = [])
     {
         $url      = rtrim(trim($url), '/');
         $headers  = $this->jellyfinHeaders($apikey, $userId);
@@ -391,8 +391,11 @@ trait Jellyfin
         $userData  = is_array($item['UserData'] ?? null) ? $item['UserData'] : [];
         $itemId    = strval($item['Id'] ?? $remoteId);
         $itemPath  = rawurlencode($itemId);
-        $playedUrl = sprintf(MediaAppEndpoints::ENDPOINT_JELLYFIN_PLAYED_ITEM, $url, $userPath, $itemPath)
-            . '?' . http_build_query(['DatePlayed' => gmdate('c')]);
+        // Undated writes omit the date so Jellyfin keeps the item's stored LastPlayedDate.
+        $viewedAt   = intval($watch['viewed_at'] ?? 0);
+        $playedDate = $viewedAt > 0 ? ['LastPlayedDate' => gmdate('Y-m-d\\TH:i:s\\Z', $viewedAt)] : [];
+        $playedUrl  = sprintf(MediaAppEndpoints::ENDPOINT_JELLYFIN_PLAYED_ITEM, $url, $userPath, $itemPath)
+            . ($playedDate ? '?' . http_build_query(['DatePlayed' => $playedDate['LastPlayedDate']]) : '');
 
         if ($finished) {
             curl($playedUrl, $headers, 'POST');
@@ -404,8 +407,7 @@ trait Jellyfin
                 'Played'                => true,
                 'PlayCount'             => $playCount,
                 'PlaybackPositionTicks' => 0,
-                'LastPlayedDate'        => gmdate('c'),
-            ]);
+            ] + $playedDate);
             curl(sprintf(MediaAppEndpoints::ENDPOINT_JELLYFIN_USER_DATA, $url, $userPath, $itemPath), $headers, 'POST', $payload);
             return;
         }
@@ -414,8 +416,7 @@ trait Jellyfin
             $payload = json_encode([
                 'PlaybackPositionTicks' => intval($inprogress) * 10000000,
                 'Played'                => !empty($userData['Played']),
-                'LastPlayedDate'        => gmdate('c'),
-            ]);
+            ] + $playedDate);
             curl(sprintf(MediaAppEndpoints::ENDPOINT_JELLYFIN_USER_DATA, $url, $userPath, $itemPath), $headers, 'POST', $payload);
             return;
         }
