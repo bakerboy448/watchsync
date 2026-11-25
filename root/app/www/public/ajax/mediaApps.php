@@ -82,6 +82,11 @@ switch ($_POST['event'] ?? '') {
                 <div class="form-text"><?= htmlEscape(translate('syncModeDescription')) ?></div>
             </div>
             <div class="mb-3">
+                <label for="mediaAppPathMaps" class="form-label"><?= htmlEscape(translate('pathMaps')) ?></label>
+                <textarea class="form-control font-monospace" id="mediaAppPathMaps" rows="2" placeholder="D:\Media => /media"><?= htmlEscape($mediaApp['path_maps'] ?? '') ?></textarea>
+                <div class="form-text"><?= htmlEscape(translate('pathMapsDescription')) ?></div>
+            </div>
+            <div class="mb-3">
                 <div class="form-check">
                     <input class="form-check-input" type="checkbox" id="mediaAppMaster" <?= $isMaster ? ' checked' : '' ?><?= $isFirst ? ' disabled' : '' ?>>
                     <label class="form-check-label" for="mediaAppMaster"><?= htmlEscape(translate('mainSource')) ?></label>
@@ -117,7 +122,8 @@ switch ($_POST['event'] ?? '') {
             $_POST['apikey'] ?? '',
             !empty($_POST['master']),
             intval($_POST['syncMode'] ?? MediaSyncModes::BOTH),
-            !empty($_POST['active'])
+            !empty($_POST['active']),
+            $_POST['pathMaps'] ?? null
         );
         echo json_encode($result);
         exit;

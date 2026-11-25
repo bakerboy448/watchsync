@@ -589,7 +589,7 @@ class MediaApps
         }
     }
 
-    public function save($id, $name, $platform, $url, $token, $apikey, $isMaster, $syncMode, $active)
+    public function save($id, $name, $platform, $url, $token, $apikey, $isMaster, $syncMode, $active, $pathMaps = null)
     {
         $name     = trim($name);
         $url      = rtrim(trim($url), '/');
@@ -659,6 +659,10 @@ class MediaApps
             if (!$id) {
                 return ['error' => true, 'message' => translate('couldNotSaveSettings')];
             }
+        }
+
+        if ($pathMaps !== null) {
+            $this->database->setMediaAppPathMaps($id, $pathMaps);
         }
 
         if ($isMaster) {
@@ -1157,16 +1161,22 @@ class MediaApps
 
         switch (intval($mediaApp['platform'])) {
             case MediaPlatforms::PLEX:
-                return $this->plexGetItems($mediaApp['url'], $mediaApp['token'], $libraryKeys, $seriesRemoteId, $seriesTitle, $since);
+                $items = $this->plexGetItems($mediaApp['url'], $mediaApp['token'], $libraryKeys, $seriesRemoteId, $seriesTitle, $since);
+                break;
             case MediaPlatforms::EMBY:
-                return $this->embyGetItems($mediaApp['url'], $mediaApp['apikey'], $libraryKeys, $seriesRemoteId, $seriesTitle, $since);
+                $items = $this->embyGetItems($mediaApp['url'], $mediaApp['apikey'], $libraryKeys, $seriesRemoteId, $seriesTitle, $since);
+                break;
             case MediaPlatforms::JELLYFIN:
-                return $this->jellyfinGetItems($mediaApp['url'], $mediaApp['apikey'], $libraryKeys, $seriesRemoteId, $seriesTitle, $since);
+                $items = $this->jellyfinGetItems($mediaApp['url'], $mediaApp['apikey'], $libraryKeys, $seriesRemoteId, $seriesTitle, $since);
+                break;
             case MediaPlatforms::SILO:
-                return $this->siloGetItems($mediaApp['url'], $mediaApp['apikey'], $libraryKeys);
+                $items = $this->siloGetItems($mediaApp['url'], $mediaApp['apikey'], $libraryKeys);
+                break;
             default:
                 return ['movies' => [], 'series' => [], 'episodes' => []];
         }
+
+        return $this->database->mapMediaAppItems($mediaApp, $items);
     }
 
     public function getWatchStatus($mediaApp, $remoteId, $username = '', $userId = 0, $user = [])
