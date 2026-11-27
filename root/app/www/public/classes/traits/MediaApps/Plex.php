@@ -1153,6 +1153,37 @@ trait Plex
         return mediaRuntimeSeconds($this->plexValue($row, 'duration'), 'ms');
     }
 
+    /*
+     * Plex records watch state on the account that signs the request. Only the
+     * owner row may use the server token; every other user needs their own.
+     */
+    public function plexWriteAccount($mediaApp, $user)
+    {
+        $user   = is_array($user) ? $user : [];
+        $userId = intval($user['id'] ?? 0);
+        if ($userId && !array_key_exists('token', $user)) {
+            $user = array_merge($user, $this->database->getMediaAppUser($userId) ?: []);
+        }
+        if (!empty($user['is_admin'])) {
+            return ['source' => 'owner', 'token' => trim(strval($mediaApp['token'] ?? ''))];
+        }
+        $token = trim(strval($user['token'] ?? ''));
+
+        return ['source' => $token != '' ? 'user' : 'none', 'token' => $token];
+    }
+
+    public function plexSetUserWatchStatus($mediaApp, $user, $remoteId, $started, $inprogress, $finished)
+    {
+        $account = $this->plexWriteAccount($mediaApp, $user);
+        if ($account['token'] == '') {
+            $this->plexWatchLog('plex write skipped ' . strval($user['username'] ?? ($user['id'] ?? '')) . ': no user token');
+            return false;
+        }
+        $this->plexSetWatchStatus($mediaApp['url'] ?? '', $account['token'], $remoteId, $started, $inprogress, $finished);
+
+        return true;
+    }
+
     public function plexSetWatchStatus($url, $token, $remoteId, $started, $inprogress, $finished)
     {
         $url     = rtrim(trim($url), '/');

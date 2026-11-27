@@ -1087,6 +1087,30 @@ trait History
         return $pushed;
     }
 
+    public function dryRunPlexAccountNote($plan, &$accounts)
+    {
+        global $mediaApps;
+
+        $app = $plan['app'] ?? [];
+        if (intval($app['platform'] ?? 0) != MediaPlatforms::PLEX) {
+            return '';
+        }
+        $user = $plan['user'] ?? [];
+        $key  = intval($app['id'] ?? 0) . ':' . intval($user['id'] ?? 0);
+        if (!isset($accounts[$key])) {
+            $accounts[$key] = $mediaApps->plexWriteAccount($app, $user)['source'];
+        }
+        $name = strval($user['username'] ?? '');
+        switch ($accounts[$key]) {
+            case 'owner':
+                return ' [as owner account]';
+            case 'user':
+                return ' [as ' . $name . ' account]';
+            default:
+                return ' [skipped: no Plex token for ' . $name . ']';
+        }
+    }
+
     public function dryRunItemLabel($type, $itemId)
     {
         $item = $this->currentJob['watch_index'][$type]['id'][intval($itemId)] ?? [];
@@ -1219,6 +1243,7 @@ trait History
         $changeLines = [];
         $skipLines   = [];
         $labels      = [];
+        $accounts    = [];
 
         foreach ($plans as $plan) {
             $app      = $plan['app']['name'] ?? '';
@@ -1248,7 +1273,7 @@ trait History
             if (!empty($plan['cascade_push'])) {
                 $changeLines[] = 'Push clear to ' . $app . ' (' . $role . ') for ' . $user . ': clear ' . $itemLabel . ' (absent from main source)';
             } else if ($mode == MediaSyncModes::BOTH && !empty($plan['needs_push'])) {
-                $changeLines[] = 'Push to ' . $app . ' (' . $role . ') for ' . $user . ': set ' . $itemLabel . ' to ' . $watchLabel;
+                $changeLines[] = 'Push to ' . $app . ' (' . $role . ') for ' . $user . ': set ' . $itemLabel . ' to ' . $watchLabel . $this->dryRunPlexAccountNote($plan, $accounts);
             }
         }
 
