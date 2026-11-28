@@ -1208,8 +1208,7 @@ class MediaApps
 
         switch (intval($mediaApp['platform'])) {
             case MediaPlatforms::PLEX:
-                $this->plexSetWatchStatus($mediaApp, $user, $remoteId, $started, $inprogress, $finished);
-                return;
+                return $this->plexSetWatchStatus($mediaApp, $user, $remoteId, $started, $inprogress, $finished);
             case MediaPlatforms::EMBY:
                 return $this->embySetWatchStatus($mediaApp['url'], $mediaApp['apikey'], $user['remote_id'], $remoteId, $started, $inprogress, $finished);
             case MediaPlatforms::JELLYFIN:

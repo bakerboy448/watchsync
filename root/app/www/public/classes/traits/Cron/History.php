@@ -1559,7 +1559,7 @@ trait History
                 'inprogress' => $change['inprogress'] ?? 0,
                 'finished'   => $change['finished'] ?? 0,
             ], $change['user']['username'] ?? '', APP_NAME, $change['app']['name'] ?? '');
-            $mediaApps->setWatchStatus(
+            $result = $mediaApps->setWatchStatus(
                 $change['app'],
                 $change['user'],
                 $change['remote_id'],
@@ -1567,6 +1567,9 @@ trait History
                 $change['inprogress'],
                 $change['finished'],
             );
+            if (!empty($result['skipped'])) {
+                continue;
+            }
             $pushed++;
             $this->addStat('pushed', 1, $change['app']);
             $key = intval($change['app']['id']) . ':' . intval($change['user']['id']);
