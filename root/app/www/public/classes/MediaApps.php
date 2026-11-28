@@ -132,6 +132,7 @@ class MediaApps
             $usersByApp[$appId]     = [
                 'role'  => intval($mediaApp['role']),
                 'users' => $result['users'] ?? [],
+                'live'  => $result['liveIdents'] ?? [],
             ];
         }
         if (!$checked) {
@@ -140,6 +141,7 @@ class MediaApps
 
         $masterIds   = [];
         $returnedIds = [];
+        $staleIds    = [];
         foreach ($usersByApp as $info) {
             $isMaster = intval($info['role']) == MediaAppRoles::MASTER;
             foreach ($info['users'] as $user) {
@@ -148,6 +150,10 @@ class MediaApps
                 }
                 $id = intval($user['id'] ?? 0);
                 if (!$id) {
+                    continue;
+                }
+                if (!$isMaster && $this->userIsStaleRemote($user, $info['live'])) {
+                    $staleIds[$id] = true;
                     continue;
                 }
                 $returnedIds[$id] = true;
@@ -172,7 +178,7 @@ class MediaApps
                     continue;
                 }
                 $id = intval($user['id'] ?? 0);
-                if ($id) {
+                if ($id && empty($staleIds[$id])) {
                     $kept[] = $user;
                 }
             }
@@ -180,7 +186,7 @@ class MediaApps
                 if (!empty($returnedIds[$id]) && !($isMaster && $this->userIsDeleted($user))) {
                     continue;
                 }
-                if (!$isMaster) {
+                if (!$isMaster && empty($staleIds[$id])) {
                     $masterUserId = intval($linkedMasters[$id] ?? 0);
                     if ($masterUserId && !empty($masterIds[$masterUserId])) {
                         $kept[] = $user;
@@ -1796,13 +1802,47 @@ class MediaApps
             $result['users'] = $kept;
         }
 
+        $liveIdents = $this->remoteUserIdents(array_merge($result['users'], $result['listed'] ?? []));
+
         $this->database->replaceMediaAppUsers($id, $result['users']);
         $users = $this->database->getMediaAppUsers($id);
         if (intval($mediaApp['platform']) == MediaPlatforms::PLEX) {
             $users = $this->applyPlexPinRequired($users, $result['users']);
         }
 
-        return ['error' => false, 'users' => $users];
+        return ['error' => false, 'users' => $users, 'liveIdents' => $liveIdents];
+    }
+
+    public function remoteUserIdents($remoteUsers)
+    {
+        $idents = [];
+        foreach ($remoteUsers as $user) {
+            $values = array_merge([$user['remote_id'] ?? '', $user['username'] ?? ''], $user['match_ids'] ?? [], $user['match_names'] ?? []);
+            foreach ($values as $value) {
+                $value = strtolower(trim(strval($value)));
+                if ($value != '' && $value != '0') {
+                    $idents[$value] = true;
+                }
+            }
+        }
+
+        return $idents;
+    }
+
+    // A row is stale only against a non-empty remote list, and an admin row never is.
+    public function userIsStaleRemote($user, $liveIdents)
+    {
+        if (!$liveIdents || !empty($user['is_admin'])) {
+            return false;
+        }
+        foreach ([$user['remote_id'] ?? '', $user['username'] ?? ''] as $value) {
+            $value = strtolower(trim(strval($value)));
+            if ($value != '' && $value != '0' && !empty($liveIdents[$value])) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public function applyPlexPinRequired($users, $plexUsers)
