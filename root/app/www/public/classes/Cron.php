@@ -131,6 +131,7 @@ class Cron
                 $this->currentJob['status']  = 'running';
                 $this->currentJob['started'] = time();
             }
+            $this->currentJob['pid'] = getmypid();
             $this->writeJobHeader();
 
             $error     = false;

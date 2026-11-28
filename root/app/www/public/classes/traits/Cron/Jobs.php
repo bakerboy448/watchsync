@@ -467,15 +467,159 @@ trait Jobs
             return ['error' => true, 'message' => translate('pageNotFound')];
         }
 
+        $this->killJobProcess($job);
+
         if (str_equals_any($job['status'] ?? '', ['running', 'queued']) || !intval($job['finished'] ?? 0)) {
             $this->currentJob             = $job;
             $this->currentJob['status']   = 'cancelled';
             $this->currentJob['finished'] = intval($job['finished'] ?? 0) ?: time();
             unset($this->currentJob['runtime'], $this->currentJob['size'], $this->currentJob['queued_wait']);
             $this->writeJobHeader();
+            $this->releaseLock($id);
+        }
+
+        $this->killJobProcess($this->job($id) ?: $job);
+        if (($this->currentJob['id'] ?? '') == $id) {
+            $this->currentJob['status'] = 'cancelled';
+            $this->writeJobHeader();
         }
 
         return ['error' => false, 'message' => translate('syncCancelled')];
+    }
+
+    public function killJobProcess($job)
+    {
+        global $shell;
+
+        $id = strval($job['id'] ?? '');
+        if (!$this->validJobId($id)) {
+            return;
+        }
+
+        $pids   = $this->jobProcessIds($id);
+        $stored = intval($job['pid'] ?? 0);
+        if ($stored > 1) {
+            $cmd = $this->processCommand($stored);
+            if ($cmd != '' && str_contains($cmd, 'sync.php') && str_contains($cmd, $id)) {
+                $pids[] = $stored;
+            }
+        }
+
+        $log = strval($job['log_file'] ?? '');
+        if ($log == '' || !is_file($log)) {
+            $fallback = CRON_LOGS_PATH . $id . '.log';
+            if (is_file($fallback)) {
+                $log = $fallback;
+            }
+        }
+
+        $seen = [];
+        foreach ($pids as $pid) {
+            $pid = intval($pid);
+            if ($pid <= 1 || $pid == getmypid() || !empty($seen[$pid])) {
+                continue;
+            }
+            $seen[$pid] = 1;
+            if ($log != '' && is_file($log)) {
+                logger($log, 'killed pid=' . $pid);
+                loggerFlush($log);
+            }
+            if (!empty($shell)) {
+                $shell->kill($pid);
+            } else {
+                shell_exec('kill -9 ' . $pid . ' >/dev/null 2>&1');
+            }
+        }
+    }
+
+    public function jobProcessIds($jobId)
+    {
+        $jobId = strval($jobId);
+        if (!$this->validJobId($jobId)) {
+            return [];
+        }
+
+        $self = getmypid();
+        $ids  = [];
+        $dirs = glob('/proc/[0-9]*/cmdline');
+        if (!$dirs) {
+            return [];
+        }
+
+        foreach ($dirs as $file) {
+            $cmd = file_get_contents($file);
+            if ($cmd == false || $cmd == '') {
+                continue;
+            }
+            $cmd = str_replace("\0", ' ', $cmd);
+            if (!str_contains($cmd, 'sync.php') || !str_contains($cmd, $jobId)) {
+                continue;
+            }
+            $pid = intval(basename(dirname($file)));
+            if ($pid > 1 && $pid != $self) {
+                $ids[] = $pid;
+            }
+        }
+
+        return $ids;
+    }
+
+    public function processCommand($pid)
+    {
+        $pid = intval($pid);
+        if ($pid <= 1) {
+            return '';
+        }
+
+        $file = '/proc/' . $pid . '/cmdline';
+        if (!is_file($file)) {
+            return '';
+        }
+
+        $cmd = file_get_contents($file);
+        if ($cmd == false || $cmd == '') {
+            return '';
+        }
+
+        return str_replace("\0", ' ', $cmd);
+    }
+
+    public function killCancelledJobProcesses()
+    {
+        $dirs = glob('/proc/[0-9]*/cmdline');
+        if (!$dirs) {
+            return;
+        }
+
+        $self = getmypid();
+        foreach ($dirs as $file) {
+            $cmd = file_get_contents($file);
+            if ($cmd == false || $cmd == '') {
+                continue;
+            }
+            $cmd = str_replace("\0", ' ', $cmd);
+            if (!str_contains($cmd, 'sync.php') || !preg_match('/(pull|push|both|webhook)-\d{8}-\d{6}(-\d+)?/', $cmd, $match)) {
+                continue;
+            }
+            $id = strval($match[0] ?? '');
+            if (!$this->validJobId($id)) {
+                continue;
+            }
+            $pid = intval(basename(dirname($file)));
+            if ($pid <= 1 || $pid == $self) {
+                continue;
+            }
+            $job    = $this->job($id);
+            $status = strval($job['status'] ?? '');
+            if ($job && str_equals_any($status, ['running', 'queued'])) {
+                continue;
+            }
+            $this->killJobProcess([
+                'id'       => $id,
+                'pid'      => $pid,
+                'log_file' => strval($job['log_file'] ?? ''),
+            ]);
+        }
     }
 
     public function deleteLog($id)
@@ -488,6 +632,8 @@ trait Jobs
         if (!$job) {
             return ['error' => true, 'message' => translate('pageNotFound')];
         }
+
+        $this->killJobProcess($job);
 
         if (str_equals_any($job['status'] ?? '', ['running', 'queued'])) {
             $this->cancel($id);
@@ -1474,6 +1620,9 @@ trait Jobs
         }
 
         $existing = $this->database->getSyncHistoryJob($payload['id']);
+        if (!$existing && $status == 'cancelled') {
+            return false;
+        }
         if ($existing) {
             $saved = $this->database->updateSyncHistory($payload['id'], $status, $started, $finished, $logFile, $payload, $results, $queued);
         } else {

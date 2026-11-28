@@ -19,6 +19,7 @@ trait Dispatcher
         }
 
         try {
+            $this->killCancelledJobProcesses();
             $this->queueAutomaticSync();
             $this->processQueue();
             $this->dispatchBackup();

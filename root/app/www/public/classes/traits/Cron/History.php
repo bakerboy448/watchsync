@@ -728,7 +728,7 @@ trait History
 
                 $row       = $existing[$userId][$type][intval($item['id'])] ?? [];
                 $dbChanged = !$row || !watchStatesEqual($row, $merged);
-                $needsPush = $both && !watchStateSatisfies($gathered ?? [], $merged);
+                $needsPush = $both && empty($member['watch_error']) && !watchStateSatisfies($gathered ?? [], $merged);
                 if ($dbChanged && !$dry) {
                     $saved                                         = $type == 'movie'
                         ? $this->database->saveUserMovieLink($row, $item['id'], $userId, $platform, $merged['started'], $merged['inprogress'], $merged['finished'])
@@ -836,7 +836,7 @@ trait History
             $user = $member['user'];
             if (!empty($member['watch_error'])) {
                 logger($this->logfile, strval($app['name'] ?? '') . ' / ' . strval($user['username'] ?? '')
-                    . ' skip local clear: watch pull not authoritative');
+                    . ' skip local clear: watch pull failed');
                 loggerFlush($this->logfile);
                 continue;
             }
@@ -1654,7 +1654,13 @@ trait History
                 if (!empty($state['user'])) {
                     $user = array_merge($user, $state['user']);
                 }
-                $status       = $mediaApps->getWatchStatus($mediaApp, $user['remote_id'], $user['username'], $user['id'], $user);
+                $status = $mediaApps->getWatchStatus($mediaApp, $user['remote_id'], $user['username'], $user['id'], $user);
+                if (!empty($status['error'])) {
+                    logger($this->logfile, strval($mediaApp['name'] ?? '') . ' / ' . strval($user['username'] ?? '')
+                        . ' skip push: watch pull failed');
+                    loggerFlush($this->logfile);
+                    continue;
+                }
                 $platform     = intval($mediaApp['platform']);
                 $moviesFin    = 0;
                 $moviesProg   = 0;

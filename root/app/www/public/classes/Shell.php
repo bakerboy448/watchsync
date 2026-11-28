@@ -37,4 +37,14 @@ class Shell
 
         return $pid;
     }
+
+    public function kill($pid)
+    {
+        $pid = intval($pid);
+        if ($pid <= 1 || $pid == getmypid()) {
+            return;
+        }
+
+        shell_exec('kill -9 ' . $pid . ' >/dev/null 2>&1');
+    }
 }

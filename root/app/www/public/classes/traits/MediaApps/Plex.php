@@ -1150,23 +1150,39 @@ trait Plex
         return mediaRuntimeSeconds($this->plexValue($row, 'duration'), 'ms');
     }
 
-    public function plexSetWatchStatus($url, $token, $remoteId, $started, $inprogress, $finished)
+    public function plexSetWatchStatus($mediaApp, $user, $remoteId, $started, $inprogress, $finished)
     {
-        $url     = rtrim(trim($url), '/');
+        $url    = rtrim(trim(strval($mediaApp['url'] ?? '')), '/');
+        $userId = intval($user['id'] ?? 0);
+        if ($userId && !array_key_exists('token', $user)) {
+            $loaded = $this->database->getMediaAppUser($userId);
+            if ($loaded) {
+                $user = array_merge($user, $loaded);
+            }
+        }
+
+        $token = trim(strval($user['token'] ?? ''));
+        $name  = strval($user['username'] ?? $userId);
+        if ($token == '' || $url == '' || trim(strval($remoteId)) == '') {
+            $this->plexWatchLog('skip setWatchStatus ' . $name . ' item=' . $remoteId . ' no user token');
+            return;
+        }
+
         $headers = $this->plexHeaders($token);
         $key     = rawurlencode($remoteId);
-
         if ($finished) {
-            curl(sprintf(MediaAppEndpoints::ENDPOINT_PLEX_SCROBBLE, $url, $key), $headers, 'GET');
-            return;
+            $curl = curl(sprintf(MediaAppEndpoints::ENDPOINT_PLEX_SCROBBLE, $url, $key), $headers, 'GET');
+        } else if ($started && $inprogress) {
+            $curl = curl(sprintf(MediaAppEndpoints::ENDPOINT_PLEX_PROGRESS, $url, $key, intval($inprogress * 1000)), $headers, 'GET');
+        } else {
+            $curl = curl(sprintf(MediaAppEndpoints::ENDPOINT_PLEX_UNSCROBBLE, $url, $key), $headers, 'GET');
         }
 
-        if ($started && $inprogress) {
-            curl(sprintf(MediaAppEndpoints::ENDPOINT_PLEX_PROGRESS, $url, $key, intval($inprogress * 1000)), $headers, 'GET');
-            return;
+        $code = intval($curl['code'] ?? 0);
+        if (($code == 401 || $code == 403) && $userId) {
+            $this->database->lockMediaAppUserToken($userId);
+            $this->plexWatchLog('token rejected ' . $name . ' item=' . $remoteId);
         }
-
-        curl(sprintf(MediaAppEndpoints::ENDPOINT_PLEX_UNSCROBBLE, $url, $key), $headers, 'GET');
     }
 
     public function plexHistoryRowAccount($row)

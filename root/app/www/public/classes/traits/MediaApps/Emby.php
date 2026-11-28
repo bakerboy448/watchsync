@@ -438,7 +438,7 @@ trait Emby
         $itemPath = rawurlencode($remoteId);
 
         $itemCurl = curl(
-            sprintf(MediaAppEndpoints::ENDPOINT_EMBY_USER_ITEM, $url, $userPath, $itemPath) . '?enableUserData=true&enableImages=false',
+            sprintf(MediaAppEndpoints::ENDPOINT_EMBY_USER_ITEM, $url, $userPath, $itemPath) . '?Fields=UserData&enableUserData=true&enableImages=false',
             $headers,
             'GET',
         );
@@ -451,14 +451,23 @@ trait Emby
             return;
         }
 
-        $item      = is_array($itemCurl['response'] ?? null) ? $itemCurl['response'] : [];
-        $userData  = is_array($item['UserData'] ?? null) ? $item['UserData'] : [];
+        $item = is_array($itemCurl['response'] ?? null) ? $itemCurl['response'] : [];
+        if (!is_array($item['UserData'] ?? null)) {
+            return;
+        }
+        $userData  = $item['UserData'];
         $itemId    = strval($item['Id'] ?? $remoteId);
         $itemPath  = rawurlencode($itemId);
+        $played    = !empty($userData['Played']);
+        $ticks     = intval($userData['PlaybackPositionTicks'] ?? 0);
+        $haveSeconds = $ticks > 0 ? intval($ticks / 10000000) : 0;
         $playedUrl = sprintf(MediaAppEndpoints::ENDPOINT_EMBY_PLAYED_ITEM, $url, $userPath, $itemPath)
             . '?' . http_build_query(['DatePlayed' => date('YmdHis')]);
 
         if ($finished) {
+            if ($played) {
+                return;
+            }
             curl($playedUrl, $headers, 'POST');
             $playCount = intval($userData['PlayCount'] ?? 0);
             if ($playCount < 1) {
@@ -475,12 +484,19 @@ trait Emby
         }
 
         if ($started && $inprogress) {
+            if ($played || $haveSeconds >= intval($inprogress)) {
+                return;
+            }
             $payload = json_encode([
                 'PlaybackPositionTicks' => intval($inprogress) * 10000000,
                 'Played'                => !empty($userData['Played']),
                 'LastPlayedDate'        => gmdate('c'),
             ]);
             curl(sprintf(MediaAppEndpoints::ENDPOINT_EMBY_USER_DATA, $url, $userPath, $itemPath), $headers, 'POST', $payload);
+            return;
+        }
+
+        if (!$played && $haveSeconds <= 0) {
             return;
         }
 
