@@ -141,9 +141,11 @@ trait Silo
 
         $users  = [];
         $access = [];
+        $listed = [];
         foreach ($rows['items'] as $user) {
             $remoteId = strval($user['id'] ?? '');
             $username = trim(strval($user['username'] ?? ''));
+            $listed[] = ['remote_id' => $remoteId, 'username' => $username];
             if (empty($user['enabled']) || $remoteId == '' || $username == '') {
                 continue;
             }
@@ -171,7 +173,7 @@ trait Silo
             return ['error' => true, 'message' => translate('mediaAppUsersFailed')];
         }
 
-        return ['error' => false, 'users' => $users, 'access' => $access];
+        return ['error' => false, 'users' => $users, 'access' => $access, 'listed' => $listed];
     }
 
     public function siloLog($message)
