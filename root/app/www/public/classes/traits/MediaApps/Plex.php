@@ -1165,7 +1165,7 @@ trait Plex
         $name  = strval($user['username'] ?? $userId);
         if ($token == '' || $url == '' || trim(strval($remoteId)) == '') {
             $this->plexWatchLog('skip setWatchStatus ' . $name . ' item=' . $remoteId . ' no user token');
-            return;
+            return ['skipped' => true];
         }
 
         $headers = $this->plexHeaders($token);
